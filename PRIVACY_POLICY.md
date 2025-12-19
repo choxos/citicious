@@ -1,6 +1,6 @@
 # Privacy Policy for Citicious
 
-**Last updated:** December 19, 2024
+**Last updated:** December 19, 2025
 
 ## Overview
 
