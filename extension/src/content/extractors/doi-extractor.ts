@@ -296,7 +296,9 @@ export function extractReferenceDois(
   // Look for all links in reference items that haven't been processed
   const allLinks = referenceSection.querySelectorAll('a[href^="http"]');
   for (const link of allLinks) {
-    const href = (link as HTMLAnchorElement).href;
+    const anchor = link as HTMLAnchorElement;
+    const href = anchor.href;
+    const linkText = (anchor.textContent || '').toLowerCase().trim();
 
     // Skip doi.org links (already handled) and common non-content URLs
     if (
@@ -305,6 +307,31 @@ export function extractReferenceDois(
       href.includes('scholar.google') ||
       href.includes('javascript:') ||
       href.includes('#')
+    ) {
+      continue;
+    }
+
+    // Skip navigation/utility links (not the actual citation URL)
+    const navLinkTexts = [
+      'article', 'full text', 'pdf', 'google scholar', 'pubmed',
+      'pubmed central', 'crossref', 'web of science', 'scopus',
+      'view', 'download', 'abstract', 'cite', 'share', 'email',
+      'print', 'export', 'bibtex', 'endnote', 'ris', 'more'
+    ];
+    if (navLinkTexts.some(nav => linkText === nav || linkText.startsWith(nav + ' '))) {
+      continue;
+    }
+
+    // Skip if the link URL contains patterns that indicate it's a publisher/database link
+    if (
+      href.includes('springer.com') ||
+      href.includes('wiley.com') ||
+      href.includes('sciencedirect.com') ||
+      href.includes('nature.com') ||
+      href.includes('ncbi.nlm.nih.gov') ||
+      href.includes('crossref.org') ||
+      href.includes('scopus.com') ||
+      href.includes('webofscience.com')
     ) {
       continue;
     }
