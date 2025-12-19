@@ -6,6 +6,7 @@ import {
 } from './extractors/doi-extractor';
 import {
   injectTopBanner,
+  injectReferencesBanner,
   injectBadge,
   updateBadge,
   removeAllBadges,
@@ -143,6 +144,7 @@ async function scanPage() {
         id: c.id,
         doi: c.doi,
         pmid: c.pmid,
+        url: c.url,
         title: c.title,
         authors: c.authors,
         year: c.year,
@@ -156,18 +158,18 @@ async function scanPage() {
     }
   } catch (error) {
     console.error('[Citicious] Error checking citations:', error);
-    // Mark all as unknown
+    // Mark all as skip (can't determine)
     for (const citation of citations) {
       const checked = checkedCitations.get(citation.id);
       if (checked) {
         checked.checking = false;
         checked.result = {
-          status: 'unknown',
+          status: 'skip',
           isRetracted: false,
           retractionDetails: null,
           validation: null,
         };
-        updateBadge(citation.element, 'unknown');
+        updateBadge(citation.element, 'skip');
       }
     }
   }
@@ -207,10 +209,14 @@ function handleCheckResults(results: { id: string; result: FullCheckResult }[]) 
       // Add highlight to reference element
       if (result.status === 'retracted') {
         checked.element.classList.add('citicious-reference--retracted');
-      } else if (result.status === 'fake') {
-        checked.element.classList.add('citicious-reference--fake');
-      } else if (result.status === 'suspicious') {
-        checked.element.classList.add('citicious-reference--suspicious');
+      } else if (result.status === 'concern') {
+        checked.element.classList.add('citicious-reference--concern');
+      } else if (result.status === 'correction') {
+        checked.element.classList.add('citicious-reference--correction');
+      } else if (result.status === 'fake-likely') {
+        checked.element.classList.add('citicious-reference--fake-likely');
+      } else if (result.status === 'fake-probably') {
+        checked.element.classList.add('citicious-reference--fake-probably');
       }
     }
   }
@@ -222,18 +228,48 @@ function handleCheckResults(results: { id: string; result: FullCheckResult }[]) 
         'retracted',
         currentArticleResult.retractionDetails || undefined
       );
-    } else if (currentArticleResult.status === 'fake') {
+    } else if (currentArticleResult.status === 'concern') {
       injectTopBanner(
-        'fake',
+        'concern',
+        currentArticleResult.retractionDetails || undefined
+      );
+    } else if (currentArticleResult.status === 'correction') {
+      injectTopBanner(
+        'correction',
+        currentArticleResult.retractionDetails || undefined
+      );
+    } else if (currentArticleResult.status === 'fake-likely') {
+      injectTopBanner(
+        'fake-likely',
         undefined,
         currentArticleResult.validation?.discrepancies
       );
-    } else if (currentArticleResult.status === 'suspicious') {
+    } else if (currentArticleResult.status === 'fake-probably') {
       injectTopBanner(
-        'suspicious',
+        'fake-probably',
         undefined,
         currentArticleResult.validation?.discrepancies
       );
+    }
+  }
+
+  // If no current article banner, show references banner if there are issues
+  if (!currentArticleResult || currentArticleResult.status === 'verified' || currentArticleResult.status === 'skip') {
+    // Count problematic references
+    let retractedCount = 0;
+    let fakeCount = 0;
+    let concernCount = 0;
+
+    for (const [, checked] of checkedCitations) {
+      if (checked.context !== 'reference') continue;
+      const status = checked.result?.status;
+      if (status === 'retracted') retractedCount++;
+      else if (status === 'fake-likely' || status === 'fake-probably') fakeCount++;
+      else if (status === 'concern' || status === 'correction') concernCount++;
+    }
+
+    if (retractedCount > 0 || fakeCount > 0 || concernCount > 0) {
+      injectReferencesBanner(retractedCount, fakeCount, concernCount);
     }
   }
 
@@ -247,7 +283,7 @@ function handleCheckResults(results: { id: string; result: FullCheckResult }[]) 
         doi: c.doi,
         title: c.title,
         context: c.context,
-        status: c.result?.status || 'unknown',
+        status: c.result?.status || 'skip',
         isRetracted: c.result?.isRetracted || false,
       })),
     },

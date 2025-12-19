@@ -4,6 +4,7 @@ import { openalexService } from './openalex.service.js';
 import type {
   CitationInput,
   CitationValidationResponse,
+  CitationStatus,
   Discrepancy,
   MatchedData,
   CrossRefWork,
@@ -26,6 +27,8 @@ export class CitationValidatorService {
 
   /**
    * Validate citation by DOI lookup
+   * Key logic: DOI existence = real citation (VERIFIED)
+   * Only mark as FAKE if DOI confirmed to not exist (404 from both APIs)
    */
   private async validateByDoi(
     citation: CitationInput
@@ -33,69 +36,136 @@ export class CitationValidatorService {
     // Try CrossRef first
     const crossrefResult = await crossrefService.getWork(citation.doi!);
 
-    if (crossrefResult) {
-      const matchedData = this.crossrefToMatchedData(crossrefResult);
+    // DOI FOUND in CrossRef → VERIFIED (regardless of metadata)
+    if (crossrefResult.status === 'found') {
+      const matchedData = this.crossrefToMatchedData(crossrefResult.work);
+      // Metadata comparison is informational only, doesn't affect status
       const discrepancies = this.compareMetadata(citation, matchedData);
-      const confidence = this.calculateConfidence(discrepancies);
 
       return {
         exists: true,
-        confidence,
+        confidence: 1.0,
         source: 'crossref',
         matchedData,
         discrepancies,
-        status: this.getStatus(confidence, discrepancies),
+        status: 'verified',
       };
     }
 
-    // Try OpenAlex as fallback
+    // DOI NOT FOUND in CrossRef (404) → try OpenAlex as fallback
+    if (crossrefResult.status === 'not_found') {
+      const openalexResult = await openalexService.getWork(citation.doi!);
+
+      if (openalexResult.status === 'found') {
+        const matchedData = this.openalexToMatchedData(openalexResult.work);
+        const discrepancies = this.compareMetadata(citation, matchedData);
+        return {
+          exists: true,
+          confidence: 1.0,
+          source: 'openalex',
+          matchedData,
+          discrepancies,
+          status: 'verified',
+        };
+      }
+
+      if (openalexResult.status === 'not_found') {
+        // CONFIRMED: DOI doesn't exist in either database → FAKE (likely)
+        return {
+          exists: false,
+          confidence: 0,
+          source: 'none',
+          discrepancies: [
+            {
+              field: 'doi',
+              provided: citation.doi!,
+              actual: 'NOT FOUND',
+              severity: 'critical',
+            },
+          ],
+          status: 'fake-likely',
+        };
+      }
+
+      // OpenAlex error but CrossRef said not_found → lean towards fake-likely
+      return {
+        exists: false,
+        confidence: 0,
+        source: 'none',
+        discrepancies: [
+          {
+            field: 'doi',
+            provided: citation.doi!,
+            actual: 'NOT FOUND IN CROSSREF, OPENALEX ERROR',
+            severity: 'critical',
+          },
+        ],
+        status: 'fake-likely',
+      };
+    }
+
+    // CrossRef ERROR → try OpenAlex as fallback
     const openalexResult = await openalexService.getWork(citation.doi!);
 
-    if (openalexResult) {
-      const matchedData = this.openalexToMatchedData(openalexResult);
+    if (openalexResult.status === 'found') {
+      const matchedData = this.openalexToMatchedData(openalexResult.work);
       const discrepancies = this.compareMetadata(citation, matchedData);
-      const confidence = this.calculateConfidence(discrepancies);
-
       return {
         exists: true,
-        confidence,
+        confidence: 1.0,
         source: 'openalex',
         matchedData,
         discrepancies,
-        status: this.getStatus(confidence, discrepancies),
+        status: 'verified',
       };
     }
 
-    // DOI not found - likely fake
+    if (openalexResult.status === 'not_found') {
+      // CrossRef had error, but OpenAlex confirmed not found → fake-likely
+      return {
+        exists: false,
+        confidence: 0,
+        source: 'none',
+        discrepancies: [
+          {
+            field: 'doi',
+            provided: citation.doi!,
+            actual: 'NOT FOUND',
+            severity: 'critical',
+          },
+        ],
+        status: 'fake-likely',
+      };
+    }
+
+    // Both APIs had errors → can't determine, skip (no badge)
     return {
       exists: false,
       confidence: 0,
       source: 'none',
-      discrepancies: [
-        {
-          field: 'doi',
-          provided: citation.doi!,
-          actual: 'NOT FOUND',
-          severity: 'critical',
-        },
-      ],
-      status: 'fake',
+      discrepancies: [],
+      status: 'skip',
     };
   }
 
   /**
-   * Validate citation by fuzzy metadata search
+   * Validate citation by fuzzy metadata search (no DOI)
+   * For citations without DOI, we try to find a match by title/author
+   * If found with high confidence → verified
+   * If found but metadata differs significantly → fake-probably
+   * If not found → skip (can't definitively say it's fake without DOI)
    */
   private async validateByMetadata(
     citation: CitationInput
   ): Promise<CitationValidationResponse> {
     if (!citation.title) {
+      // No DOI and no title → can't validate, skip
       return {
         exists: false,
         confidence: 0,
         source: 'none',
         discrepancies: [],
-        status: 'unknown',
+        status: 'skip',
       };
     }
 
@@ -127,6 +197,7 @@ export class CitationValidatorService {
         if (bestMatch && bestMatch.score > 0.7) {
           const matchedData = this.crossrefToMatchedData(bestMatch.work);
           const discrepancies = this.compareMetadata(citation, matchedData);
+          const status = this.getMetadataBasedStatus(bestMatch.score, discrepancies);
 
           return {
             exists: true,
@@ -134,18 +205,18 @@ export class CitationValidatorService {
             source: 'crossref',
             matchedData,
             discrepancies,
-            status: this.getStatus(bestMatch.score, discrepancies),
+            status,
           };
         }
       }
 
-      // Could not find - suspicious
+      // Could not find by metadata search → skip (can't prove it's fake without DOI)
       return {
         exists: false,
         confidence: 0,
         source: 'none',
         discrepancies: [],
-        status: 'suspicious',
+        status: 'skip',
       };
     }
 
@@ -155,6 +226,7 @@ export class CitationValidatorService {
     if (bestMatch && bestMatch.score > 0.7) {
       const matchedData = this.openalexToMatchedData(bestMatch.work);
       const discrepancies = this.compareMetadata(citation, matchedData);
+      const status = this.getMetadataBasedStatus(bestMatch.score, discrepancies);
 
       return {
         exists: true,
@@ -162,17 +234,17 @@ export class CitationValidatorService {
         source: 'openalex',
         matchedData,
         discrepancies,
-        status: this.getStatus(bestMatch.score, discrepancies),
+        status,
       };
     }
 
-    // Low confidence match - suspicious
+    // Low confidence match → skip
     return {
       exists: false,
       confidence: bestMatch?.score || 0,
       source: 'none',
       discrepancies: [],
-      status: 'suspicious',
+      status: 'skip',
     };
   }
 
@@ -277,19 +349,44 @@ export class CitationValidatorService {
   }
 
   /**
-   * Determine status based on confidence and discrepancies
+   * Determine status for fuzzy-matched citations (no DOI)
+   * Used when we found a citation by title/author search
+   * Key: If we found a match, it's likely real - only flag as fake-probably if significant issues
    */
-  private getStatus(
+  private getMetadataBasedStatus(
     confidence: number,
     discrepancies: Discrepancy[]
-  ): 'verified' | 'fake' | 'suspicious' | 'unknown' {
+  ): CitationStatus {
     const hasCritical = discrepancies.some((d) => d.severity === 'critical');
     const hasMajor = discrepancies.some((d) => d.severity === 'major');
 
-    if (hasCritical) return 'fake';
-    if (confidence >= 0.8 && !hasMajor) return 'verified';
-    if (confidence >= 0.5) return 'suspicious';
-    return 'fake';
+    // Found a match with high confidence and no major issues → verified
+    if (confidence >= 0.8 && !hasCritical && !hasMajor) {
+      return 'verified';
+    }
+
+    // Found a match but title is completely different (<30% similar) → fake-likely
+    const titleDiscrepancy = discrepancies.find((d) => d.field === 'title' && d.severity === 'critical');
+    if (titleDiscrepancy) {
+      return 'fake-likely';
+    }
+
+    // Found a match but year/author very different → fake-probably
+    if (hasMajor) {
+      const yearDiscrepancy = discrepancies.find((d) => d.field === 'year');
+      const authorDiscrepancy = discrepancies.find((d) => d.field === 'authors');
+      if (yearDiscrepancy || authorDiscrepancy) {
+        return 'fake-probably';
+      }
+    }
+
+    // Found a match with reasonable confidence → verified
+    if (confidence >= 0.7) {
+      return 'verified';
+    }
+
+    // Low confidence but found something → skip (uncertain)
+    return 'skip';
   }
 
   /**

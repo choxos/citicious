@@ -52,13 +52,23 @@ export interface MatchedData {
   pages?: string;
 }
 
+// Citation status - simplified for user clarity
+export type CitationStatus =
+  | 'verified'       // ✓ DOI exists in CrossRef/OpenAlex
+  | 'retracted'      // ⚠️ In RWD as retraction
+  | 'concern'        // ⚠️ In RWD as expression of concern
+  | 'correction'     // ⚠️ In RWD as correction
+  | 'fake-likely'    // ❌ DOI doesn't exist (404), high confidence fake
+  | 'fake-probably'  // ⚠️ Metadata very different, medium confidence fake
+  | 'skip';          // No badge - can't determine (API error, no DOI/URL)
+
 export interface CitationValidationResponse {
   exists: boolean;
   confidence: number;
   source: 'crossref' | 'openalex' | 'none';
   matchedData?: MatchedData;
   discrepancies: Discrepancy[];
-  status: 'verified' | 'fake' | 'suspicious' | 'unknown';
+  status: CitationStatus;
 }
 
 // Batch check types
@@ -84,6 +94,12 @@ export interface CrossRefWork {
   pages?: string;
 }
 
+// CrossRef lookup result - distinguishes found/not_found/error
+export type CrossRefLookupResult =
+  | { status: 'found'; work: CrossRefWork }
+  | { status: 'not_found' }
+  | { status: 'error'; message: string };
+
 // OpenAlex API types
 export interface OpenAlexWork {
   doi: string;
@@ -94,3 +110,9 @@ export interface OpenAlexWork {
   openAlexId: string;
   citedByCount?: number;
 }
+
+// OpenAlex lookup result - distinguishes found/not_found/error
+export type OpenAlexLookupResult =
+  | { status: 'found'; work: OpenAlexWork }
+  | { status: 'not_found' }
+  | { status: 'error'; message: string };

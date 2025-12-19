@@ -71,7 +71,7 @@ function renderPageStatus(status: PageStatus) {
 
   // Update stats
   const retracted = citations.filter((c) => c.status === 'retracted');
-  const fake = citations.filter((c) => c.status === 'fake' || c.status === 'suspicious');
+  const fake = citations.filter((c) => c.status === 'fake-likely' || c.status === 'fake-probably');
   const verified = citations.filter((c) => c.status === 'verified');
 
   document.getElementById('retracted-count')!.textContent = String(retracted.length);
@@ -101,9 +101,9 @@ function renderPageStatus(status: PageStatus) {
     `;
   }
 
-  // Problematic references (retracted, fake, suspicious)
+  // Problematic references (retracted, fake, concern, correction)
   const problematic = references.filter(
-    (c) => c.status === 'retracted' || c.status === 'fake' || c.status === 'suspicious'
+    (c) => c.status === 'retracted' || c.status === 'fake-likely' || c.status === 'fake-probably' || c.status === 'concern' || c.status === 'correction'
   );
 
   if (problematic.length > 0) {
@@ -170,14 +170,16 @@ function renderPageStatus(status: PageStatus) {
 function renderCitationCard(citation: CitationData): string {
   const statusIcons: Record<string, string> = {
     retracted: '⚠️',
-    fake: '❌',
-    suspicious: '❓',
+    concern: '⚠️',
+    correction: '📝',
+    'fake-likely': '❌',
+    'fake-probably': '⚠️',
     verified: '✓',
     checking: '⟳',
-    unknown: '?',
+    skip: '',
   };
 
-  const statusClass = citation.status === 'retracted' || citation.status === 'fake' || citation.status === 'suspicious'
+  const statusClass = ['retracted', 'fake-likely', 'fake-probably', 'concern', 'correction'].includes(citation.status)
     ? `citation-card--${citation.status}`
     : '';
 
@@ -190,7 +192,7 @@ function renderCitationCard(citation: CitationData): string {
         <strong>Retraction reason:</strong> ${reasons}
       </div>
     `;
-  } else if ((citation.status === 'fake' || citation.status === 'suspicious') && citation.validation?.discrepancies) {
+  } else if ((citation.status === 'fake-likely' || citation.status === 'fake-probably') && citation.validation?.discrepancies) {
     const discrepancies = citation.validation.discrepancies
       .map((d: any) => `${d.field}: "${d.provided}" → "${d.actual}"`)
       .join('<br>');

@@ -2,7 +2,7 @@
    Citicious Chrome Extension Styles
    =========================================== */
 
-/* Top Banner - Prominent warning for retracted articles */
+/* Top Banner - Prominent warning for problematic articles */
 .citicious-banner {
   position: fixed;
   top: 0;
@@ -11,10 +11,13 @@
   z-index: 999999;
   display: flex;
   align-items: center;
-  padding: 12px 20px;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 20px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   font-size: 14px;
-  line-height: 1.4;
+  line-height: 1;
+  white-space: nowrap;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   transition: transform 0.3s ease, opacity 0.3s ease;
 }
@@ -24,73 +27,64 @@
   opacity: 0;
 }
 
+/* Banner - Retracted (Red) */
 .citicious-banner--retracted {
   background: linear-gradient(135deg, #FEE2E2 0%, #FECACA 100%);
   border-bottom: 3px solid #DC2626;
   color: #991B1B;
 }
 
-.citicious-banner--fake {
+/* Banner - Concern (Orange) */
+.citicious-banner--concern {
   background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
   border-bottom: 3px solid #D97706;
   color: #92400E;
 }
 
-.citicious-banner--suspicious {
+/* Banner - Correction (Yellow) */
+.citicious-banner--correction {
   background: linear-gradient(135deg, #FEF9C3 0%, #FEF08A 100%);
   border-bottom: 3px solid #CA8A04;
   color: #854D0E;
 }
 
+/* Banner - Fake (likely) - High confidence (Red) */
+.citicious-banner--fake-likely {
+  background: linear-gradient(135deg, #FEE2E2 0%, #FECACA 100%);
+  border-bottom: 3px solid #DC2626;
+  color: #991B1B;
+}
+
+/* Banner - Fake (probably) - Medium confidence (Orange) */
+.citicious-banner--fake-probably {
+  background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+  border-bottom: 3px solid #D97706;
+  color: #92400E;
+}
+
 .citicious-banner__icon {
-  font-size: 28px;
-  margin-right: 16px;
+  font-size: 20px;
   flex-shrink: 0;
 }
 
-.citicious-banner__content {
-  flex: 1;
-}
-
-.citicious-banner__title {
-  font-size: 16px;
-  font-weight: 700;
-  margin-bottom: 4px;
+.citicious-banner__text {
+  font-size: 14px;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
-.citicious-banner__details {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+.citicious-banner__detail {
   font-size: 13px;
   opacity: 0.9;
 }
 
-.citicious-banner__nature {
-  font-weight: 600;
-}
-
-.citicious-banner__date,
-.citicious-banner__reason {
-  opacity: 0.85;
-}
-
-.citicious-banner__discrepancy {
-  background: rgba(0, 0, 0, 0.1);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 12px;
-}
-
 .citicious-banner__link {
-  display: inline-block;
-  margin-top: 8px;
   color: inherit;
   font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 2px;
+  margin-left: 8px;
 }
 
 .citicious-banner__link:hover {
@@ -113,36 +107,44 @@
   opacity: 1;
 }
 
-/* Inline Badges */
+/* Inline Badges - Compact styling */
 .citicious-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  margin: 0 4px;
-  border-radius: 4px;
+  gap: 3px;
+  padding: 1px 6px;
+  margin: 0 2px;
+  border-radius: 3px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.4;
-  vertical-align: middle;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.2;
+  vertical-align: baseline;
   white-space: nowrap;
   transition: transform 0.1s ease, box-shadow 0.1s ease;
   user-select: none;
 }
 
 .citicious-badge:hover {
-  transform: scale(1.05);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transform: scale(1.02);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .citicious-badge__icon {
-  font-size: 12px;
+  font-size: 10px;
+  line-height: 1;
 }
 
 .citicious-badge__label {
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.2px;
+}
+
+/* Verified - Green */
+.citicious-badge--verified {
+  background: #DCFCE7;
+  color: #16A34A;
+  border: 1px solid #BBF7D0;
 }
 
 /* Retracted - Red */
@@ -152,25 +154,32 @@
   border: 1px solid #FECACA;
 }
 
-/* Fake - Orange */
-.citicious-badge--fake {
+/* Concern - Orange */
+.citicious-badge--concern {
   background: #FEF3C7;
   color: #D97706;
   border: 1px solid #FDE68A;
 }
 
-/* Suspicious - Yellow */
-.citicious-badge--suspicious {
+/* Correction - Yellow/Amber */
+.citicious-badge--correction {
   background: #FEF9C3;
   color: #CA8A04;
   border: 1px solid #FEF08A;
 }
 
-/* Verified - Green */
-.citicious-badge--verified {
-  background: #DCFCE7;
-  color: #16A34A;
-  border: 1px solid #BBF7D0;
+/* FAKE (likely) - High confidence, Red */
+.citicious-badge--fake-likely {
+  background: #FEE2E2;
+  color: #DC2626;
+  border: 1px solid #FECACA;
+}
+
+/* FAKE (probably) - Medium confidence, Orange */
+.citicious-badge--fake-probably {
+  background: #FEF3C7;
+  color: #D97706;
+  border: 1px solid #FDE68A;
 }
 
 /* Checking - Gray with animation */
@@ -182,13 +191,6 @@
 
 .citicious-badge--checking .citicious-badge__icon {
   animation: citicious-spin 1s linear infinite;
-}
-
-/* Unknown - Light gray */
-.citicious-badge--unknown {
-  background: #F9FAFB;
-  color: #9CA3AF;
-  border: 1px solid #E5E7EB;
 }
 
 /* Spin animation for checking state */
@@ -208,60 +210,76 @@
   padding-left: 8px !important;
 }
 
-.citicious-reference--fake {
+.citicious-reference--concern {
   background: rgba(254, 243, 199, 0.5) !important;
   border-left: 3px solid #D97706 !important;
   padding-left: 8px !important;
 }
 
-.citicious-reference--suspicious {
+.citicious-reference--correction {
   background: rgba(254, 249, 195, 0.5) !important;
   border-left: 3px solid #CA8A04 !important;
   padding-left: 8px !important;
 }
 
+.citicious-reference--fake-likely {
+  background: rgba(254, 226, 226, 0.5) !important;
+  border-left: 3px solid #DC2626 !important;
+  padding-left: 8px !important;
+}
+
+.citicious-reference--fake-probably {
+  background: rgba(254, 243, 199, 0.5) !important;
+  border-left: 3px solid #D97706 !important;
+  padding-left: 8px !important;
+}
+
 /* Dark mode support */
 @media (prefers-color-scheme: dark) {
-  .citicious-banner--retracted {
+  .citicious-banner--retracted,
+  .citicious-banner--fake-likely {
     background: linear-gradient(135deg, #450A0A 0%, #7F1D1D 100%);
     border-bottom-color: #EF4444;
     color: #FCA5A5;
   }
 
-  .citicious-banner--fake {
+  .citicious-banner--concern,
+  .citicious-banner--fake-probably {
     background: linear-gradient(135deg, #451A03 0%, #78350F 100%);
     border-bottom-color: #F59E0B;
     color: #FCD34D;
   }
 
-  .citicious-banner--suspicious {
+  .citicious-banner--correction {
     background: linear-gradient(135deg, #422006 0%, #713F12 100%);
     border-bottom-color: #EAB308;
     color: #FDE047;
-  }
-
-  .citicious-badge--retracted {
-    background: #450A0A;
-    color: #FCA5A5;
-    border-color: #7F1D1D;
-  }
-
-  .citicious-badge--fake {
-    background: #451A03;
-    color: #FCD34D;
-    border-color: #78350F;
-  }
-
-  .citicious-badge--suspicious {
-    background: #422006;
-    color: #FDE047;
-    border-color: #713F12;
   }
 
   .citicious-badge--verified {
     background: #052E16;
     color: #86EFAC;
     border-color: #14532D;
+  }
+
+  .citicious-badge--retracted,
+  .citicious-badge--fake-likely {
+    background: #450A0A;
+    color: #FCA5A5;
+    border-color: #7F1D1D;
+  }
+
+  .citicious-badge--concern,
+  .citicious-badge--fake-probably {
+    background: #451A03;
+    color: #FCD34D;
+    border-color: #78350F;
+  }
+
+  .citicious-badge--correction {
+    background: #422006;
+    color: #FDE047;
+    border-color: #713F12;
   }
 
   .citicious-badge--checking {

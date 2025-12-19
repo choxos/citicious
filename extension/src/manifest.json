@@ -14,28 +14,7 @@
     "sidePanel"
   ],
   "host_permissions": [
-    "https://*.pubmed.ncbi.nlm.nih.gov/*",
-    "https://*.scholar.google.com/*",
-    "https://*.sciencedirect.com/*",
-    "https://*.nature.com/*",
-    "https://*.springer.com/*",
-    "https://*.wiley.com/*",
-    "https://*.doi.org/*",
-    "https://*.arxiv.org/*",
-    "https://*.biorxiv.org/*",
-    "https://*.medrxiv.org/*",
-    "https://*.plos.org/*",
-    "https://*.frontiersin.org/*",
-    "https://*.mdpi.com/*",
-    "https://*.tandfonline.com/*",
-    "https://*.sagepub.com/*",
-    "https://*.oup.com/*",
-    "https://*.cell.com/*",
-    "https://*.science.org/*",
-    "https://*.pnas.org/*",
-    "https://*.acs.org/*",
-    "https://*.rsc.org/*",
-    "https://*.ieee.org/*"
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background/service-worker.js",

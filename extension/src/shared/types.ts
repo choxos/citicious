@@ -1,5 +1,13 @@
-// Status types
-export type CitationStatus = 'retracted' | 'fake' | 'suspicious' | 'verified' | 'checking' | 'unknown';
+// Status types - simplified for user clarity
+export type CitationStatus =
+  | 'verified'       // ✓ DOI exists in CrossRef/OpenAlex
+  | 'retracted'      // ⚠️ In RWD as retraction
+  | 'concern'        // ⚠️ In RWD as expression of concern
+  | 'correction'     // ⚠️ In RWD as correction
+  | 'fake-likely'    // ❌ DOI doesn't exist (404), high confidence fake
+  | 'fake-probably'  // ⚠️ Metadata very different, medium confidence fake
+  | 'skip'           // No badge - can't determine (API error, no DOI/URL)
+  | 'checking';      // Loading state while validating
 
 // Retraction details
 export interface RetractionDetails {
@@ -57,6 +65,7 @@ export interface ExtractedCitation {
   id: string;
   doi?: string;
   pmid?: string;
+  url?: string;
   title?: string;
   authors?: string[];
   year?: number;

@@ -164,13 +164,51 @@ export function findReferenceSection(document: Document): HTMLElement | null {
 }
 
 /**
- * Extract DOIs from the reference section
+ * Extract citation title from reference element
+ */
+function extractTitleFromReference(element: HTMLElement): string | undefined {
+  // Look for title in common citation patterns
+  const titleSelectors = [
+    '.citation-title',
+    '.reference-title',
+    '.title',
+    'em',
+    'i',
+    '[data-title]',
+  ];
+
+  for (const selector of titleSelectors) {
+    const titleEl = element.querySelector(selector);
+    if (titleEl?.textContent) {
+      const title = titleEl.textContent.trim();
+      // Title should be reasonably long and not look like an author list
+      if (title.length > 10 && !title.match(/^\d/) && !title.includes('et al')) {
+        return title;
+      }
+    }
+  }
+
+  // Try to extract from text content (often after author names and before journal)
+  const text = element.textContent || '';
+  // Common pattern: Author(s). Title. Journal...
+  const titleMatch = text.match(/\.\s+([A-Z][^.]+[.?!])\s+[A-Z]/);
+  if (titleMatch && titleMatch[1].length > 20) {
+    return titleMatch[1].trim();
+  }
+
+  return undefined;
+}
+
+/**
+ * Extract DOIs and URLs from the reference section
  */
 export function extractReferenceDois(
   referenceSection: HTMLElement
 ): ExtractedCitation[] {
   const citations: ExtractedCitation[] = [];
   const seenDois = new Set<string>();
+  const seenUrls = new Set<string>();
+  const processedElements = new Set<HTMLElement>();
 
   // Method 1: Find links to doi.org
   const doiLinks = referenceSection.querySelectorAll('a[href*="doi.org"]');
@@ -181,11 +219,14 @@ export function extractReferenceDois(
       const doi = normalizeDoi(match[0]);
       if (!seenDois.has(doi)) {
         seenDois.add(doi);
+        const refElement = link.closest('li, p, div, tr') as HTMLElement || link as HTMLElement;
+        processedElements.add(refElement);
         citations.push({
           id: generateId(),
           doi,
+          title: extractTitleFromReference(refElement),
           context: 'reference',
-          element: link.closest('li, p, div, tr') as HTMLElement || link as HTMLElement,
+          element: refElement,
         });
       }
     }
@@ -209,9 +250,11 @@ export function extractReferenceDois(
         seenDois.add(doi);
         const parentElement = node.parentElement?.closest('li, p, div, tr') as HTMLElement;
         if (parentElement) {
+          processedElements.add(parentElement);
           citations.push({
             id: generateId(),
             doi,
+            title: extractTitleFromReference(parentElement),
             context: 'reference',
             element: parentElement,
           });
@@ -233,9 +276,11 @@ export function extractReferenceDois(
           (c) => c.element === el || c.element.contains(el) || el.contains(c.element)
         );
         if (!existingDoi) {
+          processedElements.add(el as HTMLElement);
           citations.push({
             id: generateId(),
             pmid,
+            title: extractTitleFromReference(el as HTMLElement),
             context: 'reference',
             element: el as HTMLElement,
           });
@@ -244,6 +289,46 @@ export function extractReferenceDois(
         }
         break;
       }
+    }
+  }
+
+  // Method 4: Find references with URLs but no DOIs
+  // Look for all links in reference items that haven't been processed
+  const allLinks = referenceSection.querySelectorAll('a[href^="http"]');
+  for (const link of allLinks) {
+    const href = (link as HTMLAnchorElement).href;
+
+    // Skip doi.org links (already handled) and common non-content URLs
+    if (
+      href.includes('doi.org') ||
+      href.includes('pubmed') ||
+      href.includes('scholar.google') ||
+      href.includes('javascript:') ||
+      href.includes('#')
+    ) {
+      continue;
+    }
+
+    const refElement = link.closest('li, p, div, tr') as HTMLElement;
+    if (!refElement || processedElements.has(refElement) || seenUrls.has(href)) {
+      continue;
+    }
+
+    // Check if this reference element was already processed (has a DOI)
+    const alreadyHasCitation = citations.some(
+      (c) => c.element === refElement || c.element.contains(refElement) || refElement.contains(c.element)
+    );
+
+    if (!alreadyHasCitation) {
+      seenUrls.add(href);
+      processedElements.add(refElement);
+      citations.push({
+        id: generateId(),
+        url: href,
+        title: extractTitleFromReference(refElement),
+        context: 'reference',
+        element: refElement,
+      });
     }
   }
 

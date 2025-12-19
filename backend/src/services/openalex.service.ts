@@ -1,4 +1,4 @@
-import type { OpenAlexWork } from '../types.js';
+import type { OpenAlexWork, OpenAlexLookupResult } from '../types.js';
 
 const OPENALEX_BASE_URL = 'https://api.openalex.org';
 
@@ -25,8 +25,9 @@ export class OpenAlexService {
 
   /**
    * Get work metadata by DOI
+   * Returns a result object that distinguishes found/not_found/error
    */
-  async getWork(doi: string): Promise<OpenAlexWork | null> {
+  async getWork(doi: string): Promise<OpenAlexLookupResult> {
     const normalizedDoi = this.normalizeDoi(doi);
 
     try {
@@ -35,19 +36,22 @@ export class OpenAlexService {
         { headers: this.headers }
       );
 
+      // DOI doesn't exist - this is a definitive "not found"
       if (response.status === 404) {
-        return null;
+        return { status: 'not_found' };
       }
 
+      // Other HTTP errors - this is an API error, not "not found"
       if (!response.ok) {
-        throw new Error(`OpenAlex API error: ${response.status}`);
+        return { status: 'error', message: `OpenAlex API error: ${response.status}` };
       }
 
       const data = await response.json() as any;
-      return this.transformResponse(data);
+      return { status: 'found', work: this.transformResponse(data) };
     } catch (error) {
+      // Network/timeout errors - can't determine if DOI exists
       console.error(`OpenAlex lookup failed for ${doi}:`, error);
-      return null;
+      return { status: 'error', message: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
 

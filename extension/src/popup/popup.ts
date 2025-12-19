@@ -46,8 +46,8 @@ async function loadPageStatus() {
     if (response && response.citations) {
       const citations = response.citations;
 
-      const retracted = citations.filter((c: any) => c.status === 'retracted');
-      const fake = citations.filter((c: any) => c.status === 'fake' || c.status === 'suspicious');
+      const retracted = citations.filter((c: any) => c.status === 'retracted' || c.status === 'concern' || c.status === 'correction');
+      const fake = citations.filter((c: any) => c.status === 'fake-likely' || c.status === 'fake-probably');
       const verified = citations.filter((c: any) => c.status === 'verified');
 
       // Update stats
@@ -137,18 +137,32 @@ async function handleManualCheck(doi: string) {
           Reason: ${reasons}
         </div>
       `;
-    } else if (result.status === 'fake') {
+    } else if (result.status === 'fake-likely') {
       resultEl.innerHTML = `
         <div class="manual-check__result manual-check__result--retracted">
-          <strong>❌ Possibly FAKE</strong><br>
+          <strong>❌ FAKE (likely)</strong><br>
           DOI could not be found in academic databases.
         </div>
       `;
-    } else if (result.status === 'suspicious') {
+    } else if (result.status === 'fake-probably') {
       resultEl.innerHTML = `
         <div class="manual-check__result manual-check__result--unknown">
-          <strong>❓ Suspicious</strong><br>
-          Some metadata discrepancies found.
+          <strong>⚠️ FAKE (probably)</strong><br>
+          Significant metadata discrepancies found.
+        </div>
+      `;
+    } else if (result.status === 'concern') {
+      resultEl.innerHTML = `
+        <div class="manual-check__result manual-check__result--retracted">
+          <strong>⚠️ EXPRESSION OF CONCERN</strong><br>
+          This paper has an expression of concern.
+        </div>
+      `;
+    } else if (result.status === 'correction') {
+      resultEl.innerHTML = `
+        <div class="manual-check__result manual-check__result--unknown">
+          <strong>📝 CORRECTION ISSUED</strong><br>
+          A correction has been issued for this paper.
         </div>
       `;
     } else if (result.status === 'verified') {

@@ -107,12 +107,12 @@ async function handleBatchCheck(
       }
     } catch (error) {
       console.error('[Citicious] Batch check error:', error);
-      // Return unknown status for failed checks
+      // Return skip status for failed checks (can't determine)
       for (const citation of toCheck) {
         results.push({
           id: citation.id,
           result: {
-            status: 'unknown',
+            status: 'skip',
             isRetracted: false,
             retractionDetails: null,
             validation: null,
@@ -131,12 +131,13 @@ async function handleBatchCheck(
 async function handleSingleCheck(citation: {
   doi?: string;
   pmid?: string;
+  url?: string;
   title?: string;
   authors?: string[];
   year?: number;
   journal?: string;
 }): Promise<FullCheckResult> {
-  const cacheKey = citation.doi || citation.pmid || citation.title || '';
+  const cacheKey = citation.doi || citation.pmid || citation.url || citation.title || '';
   const cached = resultsCache.get(cacheKey);
 
   if (cached) {
@@ -157,7 +158,7 @@ async function handleSingleCheck(citation: {
  * Generate cache key for a citation
  */
 function getCacheKey(citation: ExtractedCitation): string {
-  return citation.doi || citation.pmid || citation.title || citation.id;
+  return citation.doi || citation.pmid || citation.url || citation.title || citation.id;
 }
 
 /**

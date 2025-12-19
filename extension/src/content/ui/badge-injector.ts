@@ -1,23 +1,33 @@
 import type { CitationStatus, RetractionDetails, Discrepancy } from '../../shared/types';
 
 // Badge configuration per status
-const BADGE_CONFIG: Record<CitationStatus, { icon: string; label: string; className: string }> = {
-  retracted: { icon: '⚠️', label: 'RETRACTED', className: 'citicious-badge--retracted' },
-  fake: { icon: '❌', label: 'FAKE', className: 'citicious-badge--fake' },
-  suspicious: { icon: '❓', label: 'SUSPICIOUS', className: 'citicious-badge--suspicious' },
+// Note: 'skip' status doesn't show a badge
+const BADGE_CONFIG: Partial<Record<CitationStatus, { icon: string; label: string; className: string }>> = {
   verified: { icon: '✓', label: 'Verified', className: 'citicious-badge--verified' },
+  retracted: { icon: '⚠️', label: 'RETRACTED', className: 'citicious-badge--retracted' },
+  concern: { icon: '⚠️', label: 'CONCERN', className: 'citicious-badge--concern' },
+  correction: { icon: '📝', label: 'CORRECTION', className: 'citicious-badge--correction' },
+  'fake-likely': { icon: '❌', label: 'FAKE (likely)', className: 'citicious-badge--fake-likely' },
+  'fake-probably': { icon: '⚠️', label: 'FAKE (probably)', className: 'citicious-badge--fake-probably' },
   checking: { icon: '⟳', label: 'Checking...', className: 'citicious-badge--checking' },
-  unknown: { icon: '?', label: 'Unknown', className: 'citicious-badge--unknown' },
+  // 'skip' intentionally not included - no badge shown
 };
 
 /**
- * Create and inject a top banner for retracted articles
+ * Create and inject a top banner for problematic articles
+ * Only shows for: retracted, concern, correction, fake-likely, fake-probably
+ * Does NOT show for: verified, skip, checking
  */
 export function injectTopBanner(
   status: CitationStatus,
   details?: RetractionDetails,
   discrepancies?: Discrepancy[]
-): HTMLElement {
+): HTMLElement | null {
+  // Skip statuses that don't need a banner
+  if (status === 'verified' || status === 'skip' || status === 'checking') {
+    return null;
+  }
+
   // Remove existing banner if any
   const existingBanner = document.getElementById('citicious-top-banner');
   if (existingBanner) {
@@ -28,45 +38,41 @@ export function injectTopBanner(
   banner.id = 'citicious-top-banner';
   banner.className = `citicious-banner citicious-banner--${status}`;
 
-  let content = '';
+  let icon = '';
+  let text = '';
+  let linkUrl = details?.retractionNoticeUrl || null;
+  let linkText = '';
 
   if (status === 'retracted') {
-    content = `
-      <div class="citicious-banner__icon">⚠️</div>
-      <div class="citicious-banner__content">
-        <div class="citicious-banner__title">This article has been RETRACTED</div>
-        <div class="citicious-banner__details">
-          ${details?.retractionNature ? `<span class="citicious-banner__nature">${details.retractionNature}</span>` : ''}
-          ${details?.retractionDate ? `<span class="citicious-banner__date">Retracted: ${new Date(details.retractionDate).toLocaleDateString()}</span>` : ''}
-          ${details?.reason?.length ? `<span class="citicious-banner__reason">Reason: ${details.reason.slice(0, 2).join(', ')}</span>` : ''}
-        </div>
-        ${details?.retractionNoticeUrl ? `<a href="${details.retractionNoticeUrl}" target="_blank" class="citicious-banner__link">View retraction notice →</a>` : ''}
-      </div>
-      <button class="citicious-banner__close" aria-label="Dismiss banner">×</button>
-    `;
-  } else if (status === 'fake') {
-    content = `
-      <div class="citicious-banner__icon">❌</div>
-      <div class="citicious-banner__content">
-        <div class="citicious-banner__title">This citation may be FAKE or hallucinated</div>
-        <div class="citicious-banner__details">
-          ${discrepancies?.length ? `<span class="citicious-banner__reason">Issues found: ${discrepancies.map(d => d.field).join(', ')}</span>` : 'Could not verify this citation in academic databases.'}
-        </div>
-      </div>
-      <button class="citicious-banner__close" aria-label="Dismiss banner">×</button>
-    `;
-  } else if (status === 'suspicious') {
-    content = `
-      <div class="citicious-banner__icon">❓</div>
-      <div class="citicious-banner__content">
-        <div class="citicious-banner__title">This citation has suspicious discrepancies</div>
-        <div class="citicious-banner__details">
-          ${discrepancies?.map(d => `<span class="citicious-banner__discrepancy">${d.field}: "${d.provided}" vs "${d.actual}"</span>`).join(' ') || ''}
-        </div>
-      </div>
-      <button class="citicious-banner__close" aria-label="Dismiss banner">×</button>
-    `;
+    icon = '⚠️';
+    text = 'This article has been RETRACTED';
+    linkText = 'View notice →';
+  } else if (status === 'concern') {
+    icon = '⚠️';
+    text = 'EXPRESSION OF CONCERN';
+    linkText = 'View notice →';
+  } else if (status === 'correction') {
+    icon = '📝';
+    text = 'CORRECTION ISSUED';
+    linkText = 'View notice →';
+  } else if (status === 'fake-likely') {
+    icon = '❌';
+    text = 'FAKE CITATION DETECTED — DOI does not exist';
+  } else if (status === 'fake-probably') {
+    icon = '⚠️';
+    text = 'SUSPICIOUS CITATION — Metadata mismatch detected';
   }
+
+  if (!icon) {
+    return null;
+  }
+
+  const content = `
+    <span class="citicious-banner__icon">${icon}</span>
+    <span class="citicious-banner__text">${text}</span>
+    ${linkUrl ? `<a href="${linkUrl}" target="_blank" class="citicious-banner__link">${linkText}</a>` : ''}
+    <button class="citicious-banner__close" aria-label="Dismiss banner">×</button>
+  `;
 
   banner.innerHTML = content;
 
@@ -90,6 +96,7 @@ export function injectTopBanner(
 
 /**
  * Inject a badge next to a citation element
+ * Returns null if status is 'skip' (no badge shown)
  */
 export function injectBadge(
   element: HTMLElement,
@@ -97,14 +104,19 @@ export function injectBadge(
   details?: RetractionDetails,
   discrepancies?: Discrepancy[],
   onClick?: () => void
-): HTMLElement {
+): HTMLElement | null {
   // Remove existing badge if any
   const existingBadge = element.querySelector('.citicious-badge');
   if (existingBadge) {
     existingBadge.remove();
   }
 
+  // Skip status = no badge
   const config = BADGE_CONFIG[status];
+  if (!config) {
+    return null;
+  }
+
   const badge = document.createElement('span');
   badge.className = `citicious-badge ${config.className}`;
   badge.setAttribute('data-citicious-status', status);
@@ -117,10 +129,14 @@ export function injectBadge(
   // Add tooltip with details
   if (status === 'retracted' && details) {
     badge.title = `Retracted: ${details.reason?.join(', ') || 'Unknown reason'}`;
-  } else if (status === 'fake') {
-    badge.title = 'This citation could not be verified in academic databases';
-  } else if (status === 'suspicious' && discrepancies?.length) {
-    badge.title = `Discrepancies found: ${discrepancies.map(d => `${d.field}`).join(', ')}`;
+  } else if (status === 'concern' && details) {
+    badge.title = `Expression of Concern: ${details.reason?.join(', ') || 'See details'}`;
+  } else if (status === 'correction' && details) {
+    badge.title = `Correction issued: ${details.reason?.join(', ') || 'See details'}`;
+  } else if (status === 'fake-likely') {
+    badge.title = 'This DOI does not exist in academic databases';
+  } else if (status === 'fake-probably' && discrepancies?.length) {
+    badge.title = `Significant discrepancies: ${discrepancies.map(d => d.field).join(', ')}`;
   } else if (status === 'verified') {
     badge.title = 'Citation verified in academic databases';
   }
@@ -149,6 +165,7 @@ export function injectBadge(
 
 /**
  * Update an existing badge's status
+ * If status is 'skip', removes the badge
  */
 export function updateBadge(
   element: HTMLElement,
@@ -157,11 +174,23 @@ export function updateBadge(
   discrepancies?: Discrepancy[]
 ): void {
   const existingBadge = element.querySelector('.citicious-badge') as HTMLElement;
-  if (!existingBadge) return;
 
+  // Skip status = remove badge if it exists
   const config = BADGE_CONFIG[status];
+  if (!config) {
+    if (existingBadge) {
+      existingBadge.remove();
+    }
+    return;
+  }
 
-  // Update classes
+  // No existing badge and not skip = inject new badge
+  if (!existingBadge) {
+    injectBadge(element, status, details, discrepancies);
+    return;
+  }
+
+  // Update existing badge
   existingBadge.className = `citicious-badge ${config.className}`;
   existingBadge.setAttribute('data-citicious-status', status);
 
@@ -174,11 +203,92 @@ export function updateBadge(
   // Update tooltip
   if (status === 'retracted' && details) {
     existingBadge.title = `Retracted: ${details.reason?.join(', ') || 'Unknown reason'}`;
-  } else if (status === 'fake') {
-    existingBadge.title = 'This citation could not be verified';
-  } else if (status === 'suspicious' && discrepancies?.length) {
-    existingBadge.title = `Discrepancies: ${discrepancies.map(d => d.field).join(', ')}`;
+  } else if (status === 'concern' && details) {
+    existingBadge.title = `Expression of Concern: ${details.reason?.join(', ') || 'See details'}`;
+  } else if (status === 'correction' && details) {
+    existingBadge.title = `Correction: ${details.reason?.join(', ') || 'See details'}`;
+  } else if (status === 'fake-likely') {
+    existingBadge.title = 'This DOI does not exist in academic databases';
+  } else if (status === 'fake-probably' && discrepancies?.length) {
+    existingBadge.title = `Significant discrepancies: ${discrepancies.map(d => d.field).join(', ')}`;
+  } else if (status === 'verified') {
+    existingBadge.title = 'Citation verified in academic databases';
   }
+}
+
+/**
+ * Inject a summary banner for references with issues
+ */
+export function injectReferencesBanner(
+  retractedCount: number,
+  fakeCount: number,
+  concernCount: number
+): HTMLElement | null {
+  const totalProblems = retractedCount + fakeCount + concernCount;
+  if (totalProblems === 0) {
+    return null;
+  }
+
+  // Remove existing banner if any
+  const existingBanner = document.getElementById('citicious-top-banner');
+  if (existingBanner) {
+    existingBanner.remove();
+  }
+
+  const banner = document.createElement('div');
+  banner.id = 'citicious-top-banner';
+
+  // Use the most severe status for styling
+  let bannerClass = 'citicious-banner--fake-probably';
+  let icon = '⚠️';
+
+  if (retractedCount > 0) {
+    bannerClass = 'citicious-banner--retracted';
+    icon = '⚠️';
+  } else if (fakeCount > 0) {
+    bannerClass = 'citicious-banner--fake-likely';
+    icon = '❌';
+  }
+
+  banner.className = `citicious-banner ${bannerClass}`;
+
+  // Build text
+  const parts: string[] = [];
+  if (retractedCount > 0) {
+    parts.push(`${retractedCount} retracted`);
+  }
+  if (fakeCount > 0) {
+    parts.push(`${fakeCount} fake`);
+  }
+  if (concernCount > 0) {
+    parts.push(`${concernCount} with concerns`);
+  }
+  const text = `This page cites ${parts.join(', ')} reference${totalProblems > 1 ? 's' : ''}`;
+
+  const content = `
+    <span class="citicious-banner__icon">${icon}</span>
+    <span class="citicious-banner__text">${text}</span>
+    <button class="citicious-banner__close" aria-label="Dismiss banner">×</button>
+  `;
+
+  banner.innerHTML = content;
+
+  // Add close button handler
+  const closeBtn = banner.querySelector('.citicious-banner__close');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      banner.classList.add('citicious-banner--hidden');
+      setTimeout(() => banner.remove(), 300);
+    });
+  }
+
+  // Insert at top of body
+  document.body.insertBefore(banner, document.body.firstChild);
+
+  // Add body padding to prevent content overlap
+  document.body.style.marginTop = `${banner.offsetHeight}px`;
+
+  return banner;
 }
 
 /**
