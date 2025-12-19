@@ -1,0 +1,53 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Retraction {
+  id                     Int       @id @default(autoincrement())
+  recordId               Int       @unique @map("record_id")
+  title                  String?
+  subject                String[]
+  institution            String[]
+  journal                String?
+  publisher              String?
+  country                String?
+  authors                String[]
+  urls                   String[]
+  articleType            String?   @map("article_type")
+  retractionDate         DateTime? @map("retraction_date")
+  retractionDoi          String?   @map("retraction_doi")
+  retractionPubmedId     String?   @map("retraction_pubmed_id")
+  originalPaperDate      DateTime? @map("original_paper_date")
+  originalPaperDoi       String?   @map("original_paper_doi")
+  originalPaperPubmedId  String?   @map("original_paper_pubmed_id")
+  retractionNature       String?   @map("retraction_nature")
+  reason                 String[]
+  paywalled              Boolean   @default(false)
+  notes                  String?
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  @@index([originalPaperDoi])
+  @@index([originalPaperPubmedId])
+  @@index([retractionDoi])
+  @@map("retractions")
+}
+
+model CitationCache {
+  id              Int       @id @default(autoincrement())
+  doi             String    @unique
+  crossrefData    Json?     @map("crossref_data")
+  openalexData    Json?     @map("openalex_data")
+  validationStatus String?  @map("validation_status")
+  checkedAt       DateTime  @default(now()) @map("checked_at")
+  expiresAt       DateTime  @map("expires_at")
+
+  @@index([doi])
+  @@index([expiresAt])
+  @@map("citation_cache")
+}

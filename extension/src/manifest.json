@@ -1,0 +1,63 @@
+{
+  "manifest_version": 3,
+  "name": "Citicious",
+  "version": "0.1.0",
+  "description": "Detect retracted articles and fake/hallucinated citations in scientific papers",
+  "icons": {
+    "16": "assets/icons/icon-16.png",
+    "48": "assets/icons/icon-48.png",
+    "128": "assets/icons/icon-128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "storage",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://*.pubmed.ncbi.nlm.nih.gov/*",
+    "https://*.scholar.google.com/*",
+    "https://*.sciencedirect.com/*",
+    "https://*.nature.com/*",
+    "https://*.springer.com/*",
+    "https://*.wiley.com/*",
+    "https://*.doi.org/*",
+    "https://*.arxiv.org/*",
+    "https://*.biorxiv.org/*",
+    "https://*.medrxiv.org/*",
+    "https://*.plos.org/*",
+    "https://*.frontiersin.org/*",
+    "https://*.mdpi.com/*",
+    "https://*.tandfonline.com/*",
+    "https://*.sagepub.com/*",
+    "https://*.oup.com/*",
+    "https://*.cell.com/*",
+    "https://*.science.org/*",
+    "https://*.pnas.org/*",
+    "https://*.acs.org/*",
+    "https://*.rsc.org/*",
+    "https://*.ieee.org/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/content-script.js"],
+      "css": ["content/styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidebar/sidebar.html"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "assets/icons/icon-16.png",
+      "48": "assets/icons/icon-48.png",
+      "128": "assets/icons/icon-128.png"
+    }
+  }
+}

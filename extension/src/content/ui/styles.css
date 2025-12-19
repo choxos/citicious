@@ -1,0 +1,280 @@
+/* ===========================================
+   Citicious Chrome Extension Styles
+   =========================================== */
+
+/* Top Banner - Prominent warning for retracted articles */
+.citicious-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  padding: 12px 20px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.citicious-banner--hidden {
+  transform: translateY(-100%);
+  opacity: 0;
+}
+
+.citicious-banner--retracted {
+  background: linear-gradient(135deg, #FEE2E2 0%, #FECACA 100%);
+  border-bottom: 3px solid #DC2626;
+  color: #991B1B;
+}
+
+.citicious-banner--fake {
+  background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+  border-bottom: 3px solid #D97706;
+  color: #92400E;
+}
+
+.citicious-banner--suspicious {
+  background: linear-gradient(135deg, #FEF9C3 0%, #FEF08A 100%);
+  border-bottom: 3px solid #CA8A04;
+  color: #854D0E;
+}
+
+.citicious-banner__icon {
+  font-size: 28px;
+  margin-right: 16px;
+  flex-shrink: 0;
+}
+
+.citicious-banner__content {
+  flex: 1;
+}
+
+.citicious-banner__title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.citicious-banner__details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.citicious-banner__nature {
+  font-weight: 600;
+}
+
+.citicious-banner__date,
+.citicious-banner__reason {
+  opacity: 0.85;
+}
+
+.citicious-banner__discrepancy {
+  background: rgba(0, 0, 0, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.citicious-banner__link {
+  display: inline-block;
+  margin-top: 8px;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.citicious-banner__link:hover {
+  text-decoration-thickness: 2px;
+}
+
+.citicious-banner__close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0 8px;
+  opacity: 0.6;
+  color: inherit;
+  margin-left: 16px;
+  transition: opacity 0.2s ease;
+}
+
+.citicious-banner__close:hover {
+  opacity: 1;
+}
+
+/* Inline Badges */
+.citicious-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  margin: 0 4px;
+  border-radius: 4px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  vertical-align: middle;
+  white-space: nowrap;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  user-select: none;
+}
+
+.citicious-badge:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.citicious-badge__icon {
+  font-size: 12px;
+}
+
+.citicious-badge__label {
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* Retracted - Red */
+.citicious-badge--retracted {
+  background: #FEE2E2;
+  color: #DC2626;
+  border: 1px solid #FECACA;
+}
+
+/* Fake - Orange */
+.citicious-badge--fake {
+  background: #FEF3C7;
+  color: #D97706;
+  border: 1px solid #FDE68A;
+}
+
+/* Suspicious - Yellow */
+.citicious-badge--suspicious {
+  background: #FEF9C3;
+  color: #CA8A04;
+  border: 1px solid #FEF08A;
+}
+
+/* Verified - Green */
+.citicious-badge--verified {
+  background: #DCFCE7;
+  color: #16A34A;
+  border: 1px solid #BBF7D0;
+}
+
+/* Checking - Gray with animation */
+.citicious-badge--checking {
+  background: #F3F4F6;
+  color: #6B7280;
+  border: 1px solid #E5E7EB;
+}
+
+.citicious-badge--checking .citicious-badge__icon {
+  animation: citicious-spin 1s linear infinite;
+}
+
+/* Unknown - Light gray */
+.citicious-badge--unknown {
+  background: #F9FAFB;
+  color: #9CA3AF;
+  border: 1px solid #E5E7EB;
+}
+
+/* Spin animation for checking state */
+@keyframes citicious-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Reference highlighting */
+.citicious-reference--retracted {
+  background: rgba(254, 226, 226, 0.5) !important;
+  border-left: 3px solid #DC2626 !important;
+  padding-left: 8px !important;
+}
+
+.citicious-reference--fake {
+  background: rgba(254, 243, 199, 0.5) !important;
+  border-left: 3px solid #D97706 !important;
+  padding-left: 8px !important;
+}
+
+.citicious-reference--suspicious {
+  background: rgba(254, 249, 195, 0.5) !important;
+  border-left: 3px solid #CA8A04 !important;
+  padding-left: 8px !important;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .citicious-banner--retracted {
+    background: linear-gradient(135deg, #450A0A 0%, #7F1D1D 100%);
+    border-bottom-color: #EF4444;
+    color: #FCA5A5;
+  }
+
+  .citicious-banner--fake {
+    background: linear-gradient(135deg, #451A03 0%, #78350F 100%);
+    border-bottom-color: #F59E0B;
+    color: #FCD34D;
+  }
+
+  .citicious-banner--suspicious {
+    background: linear-gradient(135deg, #422006 0%, #713F12 100%);
+    border-bottom-color: #EAB308;
+    color: #FDE047;
+  }
+
+  .citicious-badge--retracted {
+    background: #450A0A;
+    color: #FCA5A5;
+    border-color: #7F1D1D;
+  }
+
+  .citicious-badge--fake {
+    background: #451A03;
+    color: #FCD34D;
+    border-color: #78350F;
+  }
+
+  .citicious-badge--suspicious {
+    background: #422006;
+    color: #FDE047;
+    border-color: #713F12;
+  }
+
+  .citicious-badge--verified {
+    background: #052E16;
+    color: #86EFAC;
+    border-color: #14532D;
+  }
+
+  .citicious-badge--checking {
+    background: #1F2937;
+    color: #9CA3AF;
+    border-color: #374151;
+  }
+}
+
+/* Print styles - hide badges and banners */
+@media print {
+  .citicious-banner,
+  .citicious-badge {
+    display: none !important;
+  }
+}

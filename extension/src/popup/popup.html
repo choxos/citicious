@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Citicious</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      background: #FAFAFA;
+      color: #1F2937;
+      width: 320px;
+      min-height: 200px;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      padding: 16px;
+      background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%);
+      color: white;
+    }
+
+    .logo {
+      width: 36px;
+      height: 36px;
+      margin-right: 12px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 20px;
+    }
+
+    .header-text {
+      flex: 1;
+    }
+
+    .title {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .subtitle {
+      font-size: 12px;
+      opacity: 0.8;
+    }
+
+    .content {
+      padding: 16px;
+    }
+
+    .status-box {
+      background: white;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      border: 1px solid #E5E7EB;
+    }
+
+    .status-box--retracted {
+      background: #FEE2E2;
+      border-color: #FECACA;
+    }
+
+    .status-box--clean {
+      background: #DCFCE7;
+      border-color: #BBF7D0;
+    }
+
+    .status-icon {
+      font-size: 32px;
+      text-align: center;
+      margin-bottom: 8px;
+    }
+
+    .status-text {
+      text-align: center;
+      font-weight: 500;
+    }
+
+    .stats {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .stat {
+      flex: 1;
+      text-align: center;
+      padding: 12px 8px;
+      background: white;
+      border-radius: 8px;
+      border: 1px solid #E5E7EB;
+    }
+
+    .stat__count {
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .stat__label {
+      font-size: 10px;
+      text-transform: uppercase;
+      color: #6B7280;
+    }
+
+    .stat--retracted .stat__count {
+      color: #DC2626;
+    }
+
+    .stat--fake .stat__count {
+      color: #D97706;
+    }
+
+    .stat--verified .stat__count {
+      color: #16A34A;
+    }
+
+    .manual-check {
+      background: white;
+      border-radius: 8px;
+      padding: 12px;
+      border: 1px solid #E5E7EB;
+    }
+
+    .manual-check__label {
+      font-size: 12px;
+      font-weight: 500;
+      margin-bottom: 8px;
+      color: #374151;
+    }
+
+    .manual-check__input {
+      display: flex;
+      gap: 8px;
+    }
+
+    .manual-check__input input {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid #D1D5DB;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+
+    .manual-check__input input:focus {
+      outline: none;
+      border-color: #3B82F6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .manual-check__input button {
+      padding: 8px 16px;
+      background: #3B82F6;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    .manual-check__input button:hover {
+      background: #2563EB;
+    }
+
+    .manual-check__input button:disabled {
+      background: #9CA3AF;
+      cursor: not-allowed;
+    }
+
+    .manual-check__result {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+
+    .manual-check__result--retracted {
+      background: #FEE2E2;
+      color: #991B1B;
+    }
+
+    .manual-check__result--verified {
+      background: #DCFCE7;
+      color: #166534;
+    }
+
+    .manual-check__result--unknown {
+      background: #F3F4F6;
+      color: #374151;
+    }
+
+    .footer {
+      padding: 12px 16px;
+      text-align: center;
+      font-size: 11px;
+      color: #9CA3AF;
+      border-top: 1px solid #E5E7EB;
+    }
+
+    .footer a {
+      color: #3B82F6;
+      text-decoration: none;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #6B7280;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">C</div>
+    <div class="header-text">
+      <div class="title">Citicious</div>
+      <div class="subtitle">Retraction & Fake Citation Detector</div>
+    </div>
+  </div>
+
+  <div class="content">
+    <div id="page-status">
+      <div class="loading">Loading...</div>
+    </div>
+
+    <div class="stats" id="stats" style="display: none;">
+      <div class="stat stat--retracted">
+        <div class="stat__count" id="retracted-count">0</div>
+        <div class="stat__label">Retracted</div>
+      </div>
+      <div class="stat stat--fake">
+        <div class="stat__count" id="fake-count">0</div>
+        <div class="stat__label">Fake</div>
+      </div>
+      <div class="stat stat--verified">
+        <div class="stat__count" id="verified-count">0</div>
+        <div class="stat__label">Verified</div>
+      </div>
+    </div>
+
+    <div class="manual-check">
+      <div class="manual-check__label">Check a DOI manually:</div>
+      <div class="manual-check__input">
+        <input type="text" id="doi-input" placeholder="10.1234/example.doi">
+        <button id="check-btn">Check</button>
+      </div>
+      <div id="manual-result"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Created by <a href="https://github.com/choxos" target="_blank">Ahmad Sofi-Mahmudi</a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
