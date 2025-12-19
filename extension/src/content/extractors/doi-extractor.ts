@@ -360,6 +360,9 @@ export function scanPageForDois(document: Document): ExtractedCitation[] {
       } else if (citation.pmid) {
         // Include PMID-only citations
         citations.push(citation);
+      } else if (citation.url) {
+        // Include URL-only citations (for non-academic references)
+        citations.push(citation);
       }
     }
   }
