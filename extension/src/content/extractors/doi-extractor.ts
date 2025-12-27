@@ -127,7 +127,7 @@ export function extractCurrentArticleDoi(document: Document): ExtractedCitation 
  * Find the reference section in the document
  */
 export function findReferenceSection(document: Document): HTMLElement | null {
-  // Common selectors for reference sections
+  // Common selectors for reference sections (specific, not sidebar-like elements)
   const selectors = [
     '#references',
     '#bibliography',
@@ -136,8 +136,6 @@ export function findReferenceSection(document: Document): HTMLElement | null {
     '.references',
     '.bibliography',
     '.reference-list',
-    '[class*="reference"]',
-    '[id*="reference"]',
     'section[data-title="References"]',
   ];
 
@@ -148,12 +146,18 @@ export function findReferenceSection(document: Document): HTMLElement | null {
     }
   }
 
-  // Look for h2/h3 with "References" and get parent section
-  const headings = document.querySelectorAll('h2, h3, h4');
+  // Look for h2/h3/h4 with "References" or "Bibliography" heading and get following content
+  const headings = document.querySelectorAll('h1, h2, h3, h4');
   for (const heading of headings) {
-    if (heading.textContent?.toLowerCase().includes('references')) {
+    const headingText = heading.textContent?.trim().toLowerCase() || '';
+    // Must be a standalone heading like "References" or "Bibliography", not "References & Citations" sidebar
+    if (
+      headingText === 'references' ||
+      headingText === 'bibliography' ||
+      headingText.match(/^\d+\.?\s*(references|bibliography)$/) // e.g., "5. References"
+    ) {
       // Return the parent section or the heading's next siblings container
-      const parent = heading.closest('section') || heading.parentElement;
+      const parent = heading.closest('section, article, .content, .paper-content, main') || heading.parentElement;
       if (parent) {
         return parent as HTMLElement;
       }
@@ -316,7 +320,8 @@ export function extractReferenceDois(
       'article', 'full text', 'pdf', 'google scholar', 'pubmed',
       'pubmed central', 'crossref', 'web of science', 'scopus',
       'view', 'download', 'abstract', 'cite', 'share', 'email',
-      'print', 'export', 'bibtex', 'endnote', 'ris', 'more'
+      'print', 'export', 'bibtex', 'endnote', 'ris', 'more',
+      'nasa ads', 'semantic scholar'
     ];
     if (navLinkTexts.some(nav => linkText === nav || linkText.startsWith(nav + ' '))) {
       continue;
@@ -331,7 +336,9 @@ export function extractReferenceDois(
       href.includes('ncbi.nlm.nih.gov') ||
       href.includes('crossref.org') ||
       href.includes('scopus.com') ||
-      href.includes('webofscience.com')
+      href.includes('webofscience.com') ||
+      href.includes('adsabs.harvard.edu') ||
+      href.includes('semanticscholar.org')
     ) {
       continue;
     }
