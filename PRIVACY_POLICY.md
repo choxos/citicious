@@ -1,6 +1,6 @@
 # Privacy Policy for Citicious
 
-**Last updated:** December 19, 2025
+**Last updated:** March 27, 2026
 
 ## Overview
 
@@ -45,10 +45,10 @@ These services have their own privacy policies. We only send DOI strings to thes
 
 ## Data Storage
 
-- Citation validation results are cached locally in your browser using Chrome's storage API
-- Cache is cleared automatically every 24 hours
-- No data is stored on external servers
-- You can clear cached data by removing and reinstalling the extension
+- Citation validation results are cached temporarily in memory while the browser is open
+- Cache is cleared automatically every 24 hours, or when the browser is closed
+- No data is stored on external servers or persisted to disk
+- You can clear cached data by reloading or closing the browser tab
 
 ## Data Sharing
 
@@ -60,10 +60,8 @@ We do not:
 
 ## Permissions Explained
 
-- **activeTab**: Required to read page content and extract DOIs from the current tab
-- **storage**: Used to cache validation results locally for better performance
-- **sidePanel**: Displays a summary of citation validation results
-- **Host permissions**: Needed to run on any webpage containing scientific citations
+- **sidePanel**: Displays a summary of citation validation results in a sidebar
+- **Host permissions (<all_urls>)**: Needed to run on any webpage containing scientific citations and to query public academic APIs (CrossRef, OpenAlex)
 
 ## Your Rights
 

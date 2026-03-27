@@ -67,23 +67,34 @@ export function injectTopBanner(
     return null;
   }
 
-  const content = `
-    <span class="citicious-banner__icon">${icon}</span>
-    <span class="citicious-banner__text">${text}</span>
-    ${linkUrl ? `<a href="${linkUrl}" target="_blank" class="citicious-banner__link">${linkText}</a>` : ''}
-    <button class="citicious-banner__close" aria-label="Dismiss banner">×</button>
-  `;
+  const iconSpan = document.createElement('span');
+  iconSpan.className = 'citicious-banner__icon';
+  iconSpan.textContent = icon;
+  banner.appendChild(iconSpan);
 
-  banner.innerHTML = content;
+  const textSpan = document.createElement('span');
+  textSpan.className = 'citicious-banner__text';
+  textSpan.textContent = text;
+  banner.appendChild(textSpan);
 
-  // Add close button handler
-  const closeBtn = banner.querySelector('.citicious-banner__close');
-  if (closeBtn) {
-    closeBtn.addEventListener('click', () => {
-      banner.classList.add('citicious-banner--hidden');
-      setTimeout(() => banner.remove(), 300);
-    });
+  if (linkUrl) {
+    const link = document.createElement('a');
+    link.href = linkUrl;
+    link.target = '_blank';
+    link.className = 'citicious-banner__link';
+    link.textContent = linkText;
+    banner.appendChild(link);
   }
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'citicious-banner__close';
+  closeBtn.setAttribute('aria-label', 'Dismiss banner');
+  closeBtn.textContent = '\u00D7';
+  closeBtn.addEventListener('click', () => {
+    banner.classList.add('citicious-banner--hidden');
+    setTimeout(() => banner.remove(), 300);
+  });
+  banner.appendChild(closeBtn);
 
   // Insert at top of body
   document.body.insertBefore(banner, document.body.firstChild);
@@ -121,10 +132,15 @@ export function injectBadge(
   badge.className = `citicious-badge ${config.className}`;
   badge.setAttribute('data-citicious-status', status);
 
-  badge.innerHTML = `
-    <span class="citicious-badge__icon">${config.icon}</span>
-    <span class="citicious-badge__label">${config.label}</span>
-  `;
+  const badgeIcon = document.createElement('span');
+  badgeIcon.className = 'citicious-badge__icon';
+  badgeIcon.textContent = config.icon;
+  badge.appendChild(badgeIcon);
+
+  const badgeLabel = document.createElement('span');
+  badgeLabel.className = 'citicious-badge__label';
+  badgeLabel.textContent = config.label;
+  badge.appendChild(badgeLabel);
 
   // Add tooltip with details
   if (status === 'retracted' && details) {
@@ -195,10 +211,16 @@ export function updateBadge(
   existingBadge.setAttribute('data-citicious-status', status);
 
   // Update content
-  existingBadge.innerHTML = `
-    <span class="citicious-badge__icon">${config.icon}</span>
-    <span class="citicious-badge__label">${config.label}</span>
-  `;
+  existingBadge.textContent = '';
+  const updatedIcon = document.createElement('span');
+  updatedIcon.className = 'citicious-badge__icon';
+  updatedIcon.textContent = config.icon;
+  existingBadge.appendChild(updatedIcon);
+
+  const updatedLabel = document.createElement('span');
+  updatedLabel.className = 'citicious-badge__label';
+  updatedLabel.textContent = config.label;
+  existingBadge.appendChild(updatedLabel);
 
   // Update tooltip
   if (status === 'retracted' && details) {
@@ -265,22 +287,25 @@ export function injectReferencesBanner(
   }
   const text = `This page cites ${parts.join(', ')} reference${totalProblems > 1 ? 's' : ''}`;
 
-  const content = `
-    <span class="citicious-banner__icon">${icon}</span>
-    <span class="citicious-banner__text">${text}</span>
-    <button class="citicious-banner__close" aria-label="Dismiss banner">×</button>
-  `;
+  const iconSpan = document.createElement('span');
+  iconSpan.className = 'citicious-banner__icon';
+  iconSpan.textContent = icon;
+  banner.appendChild(iconSpan);
 
-  banner.innerHTML = content;
+  const textSpan = document.createElement('span');
+  textSpan.className = 'citicious-banner__text';
+  textSpan.textContent = text;
+  banner.appendChild(textSpan);
 
-  // Add close button handler
-  const closeBtn = banner.querySelector('.citicious-banner__close');
-  if (closeBtn) {
-    closeBtn.addEventListener('click', () => {
-      banner.classList.add('citicious-banner--hidden');
-      setTimeout(() => banner.remove(), 300);
-    });
-  }
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'citicious-banner__close';
+  closeBtn.setAttribute('aria-label', 'Dismiss banner');
+  closeBtn.textContent = '\u00D7';
+  closeBtn.addEventListener('click', () => {
+    banner.classList.add('citicious-banner--hidden');
+    setTimeout(() => banner.remove(), 300);
+  });
+  banner.appendChild(closeBtn);
 
   // Insert at top of body
   document.body.insertBefore(banner, document.body.firstChild);

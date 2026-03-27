@@ -16,7 +16,7 @@ Citicious is a Chrome extension that helps researchers and readers identify:
 - **Inline Badges** - Visual indicators next to each reference
 - **Sidebar Panel** - Detailed information about all citations on the page
 - **Manual DOI Check** - Check any DOI directly from the popup
-- **Works Everywhere** - Supports PubMed, Google Scholar, ScienceDirect, Nature, arXiv, and many more
+- **Works Everywhere** - Automatically activates on academic publisher websites
 
 ## How It Works
 
@@ -57,30 +57,6 @@ Citicious is a Chrome extension that helps researchers and readers identify:
    - Click "Load unpacked"
    - Select the `extension/dist` folder
 
-### Backend Setup (Optional)
-
-The extension can use a local backend for enhanced performance:
-
-1. Set up PostgreSQL database
-2. Install backend dependencies:
-   ```bash
-   cd backend
-   npm install
-   cp .env.example .env
-   # Edit .env with your database credentials
-   ```
-
-3. Initialize database and import Retraction Watch data:
-   ```bash
-   npm run db:push
-   npm run import:retractions ../retraction_watch.csv
-   ```
-
-4. Start the server:
-   ```bash
-   npm run dev
-   ```
-
 ## Citation Status Types
 
 | Status | Badge | Description |
@@ -90,22 +66,9 @@ The extension can use a local backend for enhanced performance:
 | Suspicious | ❓ SUSPICIOUS | Metadata discrepancies found |
 | Verified | ✓ Verified | Citation confirmed valid |
 
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/v1/check/retraction` | POST | Check if DOI/PMID is retracted |
-| `/api/v1/check/citation` | POST | Validate citation exists & metadata |
-| `/api/v1/check/full` | POST | Combined retraction + validation check |
-| `/api/v1/check/batch` | POST | Batch check multiple citations |
-| `/api/v1/health` | GET | Health check |
-| `/api/v1/stats` | GET | Database statistics |
-
 ## Tech Stack
 
 - **Extension**: Chrome Manifest V3, TypeScript, Webpack
-- **Backend**: Node.js, Fastify, TypeScript
-- **Database**: PostgreSQL with Prisma ORM
 - **External APIs**: CrossRef, OpenAlex
 
 ## Data Sources

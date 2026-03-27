@@ -85,18 +85,7 @@ export type MessageType =
   | 'CHECK_CITATION'
   | 'CHECK_BATCH'
   | 'GET_PAGE_STATUS'
-  | 'UPDATE_CITATION'
-  | 'OPEN_SIDEBAR';
-
-export interface Message {
-  type: MessageType;
-  payload?: any;
-}
-
-// Page scan result
-export interface PageScanResult {
-  currentArticle: ExtractedCitation | null;
-  references: ExtractedCitation[];
-  totalDOIs: number;
-  url: string;
-}
+  | 'UPDATE_PAGE_STATUS'
+  | 'OPEN_SIDEBAR'
+  | 'RESCAN_PAGE'
+  | 'HIGHLIGHT_CITATION';

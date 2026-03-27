@@ -15,7 +15,6 @@ import type {
   ExtractedCitation,
   CheckedCitation,
   FullCheckResult,
-  PageScanResult,
 } from '../shared/types';
 
 // Store checked citations
@@ -32,8 +31,6 @@ async function init() {
   if (!isRelevantPage()) {
     return;
   }
-
-  console.log('[Citicious] Initializing on:', window.location.href);
 
   // Wait for page to be fully loaded
   if (document.readyState !== 'complete') {
@@ -92,8 +89,8 @@ function isRelevantPage(): boolean {
     return true;
   }
 
-  // Check for DOI in URL
-  if (window.location.href.includes('10.')) {
+  // Check for DOI in URL (must match DOI pattern, not just "10.")
+  if (/\/10\.\d{4,9}\//.test(window.location.href)) {
     return true;
   }
 
@@ -112,11 +109,8 @@ function isRelevantPage(): boolean {
  * Scan the page for DOIs and check them
  */
 async function scanPage() {
-  console.log('[Citicious] Scanning page...');
-
   // Extract citations from the page
   const citations = scanPageForDois(document);
-  console.log(`[Citicious] Found ${citations.length} citations`);
 
   if (citations.length === 0) {
     return;
@@ -157,7 +151,6 @@ async function scanPage() {
       handleCheckResults(response.results);
     }
   } catch (error) {
-    console.error('[Citicious] Error checking citations:', error);
     // Mark all as skip (can't determine)
     for (const citation of citations) {
       const checked = checkedCitations.get(citation.id);
@@ -323,7 +316,6 @@ function observePageChanges() {
         clearTimeout(scanDebounceTimer);
       }
       scanDebounceTimer = window.setTimeout(() => {
-        console.log('[Citicious] Re-scanning due to page changes...');
         scanPage();
       }, 1000);
     }

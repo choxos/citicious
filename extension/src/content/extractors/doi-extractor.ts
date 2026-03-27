@@ -211,7 +211,6 @@ export function extractReferenceDois(
 ): ExtractedCitation[] {
   const citations: ExtractedCitation[] = [];
   const seenDois = new Set<string>();
-  const seenUrls = new Set<string>();
   const processedElements = new Set<HTMLElement>();
 
   // Method 1: Find links to doi.org
@@ -296,76 +295,6 @@ export function extractReferenceDois(
     }
   }
 
-  // Method 4: Find references with URLs but no DOIs
-  // Look for all links in reference items that haven't been processed
-  const allLinks = referenceSection.querySelectorAll('a[href^="http"]');
-  for (const link of allLinks) {
-    const anchor = link as HTMLAnchorElement;
-    const href = anchor.href;
-    const linkText = (anchor.textContent || '').toLowerCase().trim();
-
-    // Skip doi.org links (already handled) and common non-content URLs
-    if (
-      href.includes('doi.org') ||
-      href.includes('pubmed') ||
-      href.includes('scholar.google') ||
-      href.includes('javascript:') ||
-      href.includes('#')
-    ) {
-      continue;
-    }
-
-    // Skip navigation/utility links (not the actual citation URL)
-    const navLinkTexts = [
-      'article', 'full text', 'pdf', 'google scholar', 'pubmed',
-      'pubmed central', 'crossref', 'web of science', 'scopus',
-      'view', 'download', 'abstract', 'cite', 'share', 'email',
-      'print', 'export', 'bibtex', 'endnote', 'ris', 'more',
-      'nasa ads', 'semantic scholar'
-    ];
-    if (navLinkTexts.some(nav => linkText === nav || linkText.startsWith(nav + ' '))) {
-      continue;
-    }
-
-    // Skip if the link URL contains patterns that indicate it's a publisher/database link
-    if (
-      href.includes('springer.com') ||
-      href.includes('wiley.com') ||
-      href.includes('sciencedirect.com') ||
-      href.includes('nature.com') ||
-      href.includes('ncbi.nlm.nih.gov') ||
-      href.includes('crossref.org') ||
-      href.includes('scopus.com') ||
-      href.includes('webofscience.com') ||
-      href.includes('adsabs.harvard.edu') ||
-      href.includes('semanticscholar.org')
-    ) {
-      continue;
-    }
-
-    const refElement = link.closest('li, p, div, tr') as HTMLElement;
-    if (!refElement || processedElements.has(refElement) || seenUrls.has(href)) {
-      continue;
-    }
-
-    // Check if this reference element was already processed (has a DOI)
-    const alreadyHasCitation = citations.some(
-      (c) => c.element === refElement || c.element.contains(refElement) || refElement.contains(c.element)
-    );
-
-    if (!alreadyHasCitation) {
-      seenUrls.add(href);
-      processedElements.add(refElement);
-      citations.push({
-        id: generateId(),
-        url: href,
-        title: extractTitleFromReference(refElement),
-        context: 'reference',
-        element: refElement,
-      });
-    }
-  }
-
   return citations;
 }
 
@@ -393,9 +322,6 @@ export function scanPageForDois(document: Document): ExtractedCitation[] {
         citations.push(citation);
       } else if (citation.pmid) {
         // Include PMID-only citations
-        citations.push(citation);
-      } else if (citation.url) {
-        // Include URL-only citations (for non-academic references)
         citations.push(citation);
       }
     }

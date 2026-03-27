@@ -4,10 +4,7 @@ const CROSSREF_BASE_URL = 'https://api.crossref.org';
 const OPENALEX_BASE_URL = 'https://api.openalex.org';
 
 // Email for polite pool access (better rate limits)
-const CONTACT_EMAIL = 'citicious@example.com';
-
-// URL fetch timeout (ms)
-const URL_FETCH_TIMEOUT = 10000;
+const CONTACT_EMAIL = 'choxos@users.noreply.github.com';
 
 /**
  * Normalize DOI for API lookup
@@ -65,7 +62,6 @@ async function checkCrossRef(doi: string): Promise<{ status: 'found' | 'not_foun
     const data = await response.json();
     return { status: 'found', work: data.message };
   } catch (error) {
-    console.error('CrossRef lookup failed:', error);
     return { status: 'error' };
   }
 }
@@ -98,77 +94,6 @@ async function checkOpenAlex(doi: string): Promise<{ status: 'found' | 'not_foun
     const data = await response.json();
     return { status: 'found', work: data };
   } catch (error) {
-    console.error('OpenAlex lookup failed:', error);
-    return { status: 'error' };
-  }
-}
-
-/**
- * Check if a URL exists and extract its title
- * Returns: { status: 'found'|'not_found'|'error', title?: string }
- */
-async function checkUrl(url: string): Promise<{ status: 'found' | 'not_found' | 'error'; title?: string }> {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), URL_FETCH_TIMEOUT);
-
-    const response = await fetch(url, {
-      method: 'GET',
-      signal: controller.signal,
-      headers: {
-        'Accept': 'text/html',
-        'User-Agent': 'Mozilla/5.0 (compatible; Citicious/0.1.0)',
-      },
-    });
-
-    clearTimeout(timeoutId);
-
-    // 404 or similar = page not found -> FAKE
-    if (response.status === 404 || response.status === 410) {
-      return { status: 'not_found' };
-    }
-
-    if (!response.ok) {
-      return { status: 'error' };
-    }
-
-    // Get the HTML and extract the title
-    const html = await response.text();
-
-    // Check for common "page not found" indicators in the content
-    const lowerHtml = html.toLowerCase();
-    if (
-      lowerHtml.includes('page not found') ||
-      lowerHtml.includes('404') ||
-      lowerHtml.includes('not found') ||
-      lowerHtml.includes('does not exist') ||
-      lowerHtml.includes('no longer available') ||
-      lowerHtml.includes('has been removed')
-    ) {
-      return { status: 'not_found' };
-    }
-
-    // Extract title from HTML
-    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    const title = titleMatch ? titleMatch[1].trim() : undefined;
-
-    // Check if title indicates page not found
-    if (title) {
-      const lowerTitle = title.toLowerCase();
-      if (
-        lowerTitle.includes('page not found') ||
-        lowerTitle.includes('404') ||
-        lowerTitle.includes('not found') ||
-        lowerTitle.includes('error')
-      ) {
-        return { status: 'not_found' };
-      }
-    }
-
-    return { status: 'found', title };
-  } catch (error) {
-    console.error('URL check failed:', error);
-    // Network errors, timeouts, CORS errors
     return { status: 'error' };
   }
 }
@@ -322,17 +247,6 @@ function compareMetadata(
   return discrepancies;
 }
 
-/**
- * Compare provided title with actual page title
- */
-function compareTitles(providedTitle: string, actualTitle: string): { match: boolean; similarity: number } {
-  const similarity = stringSimilarity(providedTitle, actualTitle);
-  return {
-    match: similarity >= 0.3, // Low threshold because page titles often differ from citation titles
-    similarity,
-  };
-}
-
 export class CiticiousAPI {
   /**
    * Check a single citation (validation + retraction status)
@@ -346,17 +260,12 @@ export class CiticiousAPI {
     year?: number;
     journal?: string;
   }): Promise<FullCheckResult> {
-    // Priority 1: DOI-based validation
+    // DOI-based validation
     if (citation.doi) {
       return this.checkByDoi(citation);
     }
 
-    // Priority 2: URL-based validation (for non-academic citations)
-    if (citation.url) {
-      return this.checkByUrl(citation);
-    }
-
-    // No DOI and no URL -> can't validate, skip
+    // No DOI -> can't validate, skip
     return {
       status: 'skip',
       isRetracted: false,
@@ -509,127 +418,6 @@ export class CiticiousAPI {
   }
 
   /**
-   * Check citation by URL (for non-academic citations without DOIs)
-   */
-  private async checkByUrl(citation: {
-    url?: string;
-    title?: string;
-    authors?: string[];
-    year?: number;
-  }): Promise<FullCheckResult> {
-    if (!citation.url) {
-      return {
-        status: 'skip',
-        isRetracted: false,
-        retractionDetails: null,
-        validation: null,
-      };
-    }
-
-    // Fetch the URL and check if it exists
-    const urlResult = await checkUrl(citation.url);
-
-    // URL returns 404 or "Page Not Found" -> FAKE (likely)
-    if (urlResult.status === 'not_found') {
-      return {
-        status: 'fake-likely',
-        isRetracted: false,
-        retractionDetails: null,
-        validation: {
-          exists: false,
-          confidence: 0,
-          source: 'none',
-          discrepancies: [{
-            field: 'url',
-            provided: citation.url,
-            actual: 'PAGE NOT FOUND',
-            severity: 'critical',
-          }],
-          status: 'fake-likely',
-        },
-      };
-    }
-
-    // URL fetch error (CORS, timeout, etc.) -> skip (can't determine)
-    if (urlResult.status === 'error') {
-      return {
-        status: 'skip',
-        isRetracted: false,
-        retractionDetails: null,
-        validation: null,
-      };
-    }
-
-    // URL exists! Now compare titles if we have both
-    if (citation.title && urlResult.title) {
-      const titleComparison = compareTitles(citation.title, urlResult.title);
-
-      // If titles are completely different (<30% similar) -> FAKE (likely)
-      if (titleComparison.similarity < 0.3) {
-        return {
-          status: 'fake-likely',
-          isRetracted: false,
-          retractionDetails: null,
-          validation: {
-            exists: true,
-            confidence: titleComparison.similarity,
-            source: 'none',
-            discrepancies: [{
-              field: 'title',
-              provided: citation.title,
-              actual: urlResult.title,
-              severity: 'critical',
-            }],
-            status: 'fake-likely',
-          },
-        };
-      }
-
-      // If titles are somewhat different (30-70% similar) -> FAKE (probably)
-      if (titleComparison.similarity < 0.7) {
-        return {
-          status: 'fake-probably',
-          isRetracted: false,
-          retractionDetails: null,
-          validation: {
-            exists: true,
-            confidence: titleComparison.similarity,
-            source: 'none',
-            discrepancies: [{
-              field: 'title',
-              provided: citation.title,
-              actual: urlResult.title,
-              severity: 'major',
-            }],
-            status: 'fake-probably',
-          },
-        };
-      }
-    }
-
-    // URL exists and title matches (or no title to compare) -> VERIFIED
-    return {
-      status: 'verified',
-      isRetracted: false,
-      retractionDetails: null,
-      validation: {
-        exists: true,
-        confidence: 1.0,
-        source: 'none',
-        matchedData: urlResult.title ? {
-          doi: '',
-          title: urlResult.title,
-          authors: [],
-          year: 0,
-          journal: '',
-        } : undefined,
-        discrepancies: [],
-        status: 'verified',
-      },
-    };
-  }
-
-  /**
    * Batch check multiple citations
    */
   async checkBatch(
@@ -665,22 +453,6 @@ export class CiticiousAPI {
     return results;
   }
 
-  /**
-   * Check API health (always returns true for direct API calls)
-   */
-  async checkHealth(): Promise<boolean> {
-    return true;
-  }
-
-  /**
-   * Get API stats (not available for direct API calls)
-   */
-  async getStats(): Promise<{
-    totalRetractions: number;
-    lastUpdated: string;
-  } | null> {
-    return null;
-  }
 }
 
 // Export singleton instance

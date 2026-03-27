@@ -1,4 +1,5 @@
 import { citiciousAPI } from '../shared/api-client';
+import { escapeHtml } from '../shared/utils';
 
 /**
  * Initialize popup
@@ -130,7 +131,7 @@ async function handleManualCheck(doi: string) {
     const result = await citiciousAPI.checkCitation({ doi: doi.trim() });
 
     if (result.isRetracted) {
-      const reasons = result.retractionDetails?.reason?.slice(0, 2).join(', ') || 'Unknown';
+      const reasons = escapeHtml(result.retractionDetails?.reason?.slice(0, 2).join(', ') || 'Unknown');
       resultEl.innerHTML = `
         <div class="manual-check__result manual-check__result--retracted">
           <strong>⚠️ RETRACTED</strong><br>

@@ -1,3 +1,5 @@
+import { escapeHtml } from '../shared/utils';
+
 interface CitationData {
   id: string;
   doi?: string;
@@ -186,7 +188,7 @@ function renderCitationCard(citation: CitationData): string {
   let detailsHtml = '';
 
   if (citation.status === 'retracted' && citation.details) {
-    const reasons = citation.details.reason?.slice(0, 2).join(', ') || 'Unknown';
+    const reasons = escapeHtml(citation.details.reason?.slice(0, 2).join(', ') || 'Unknown');
     detailsHtml = `
       <div class="citation-card__reason">
         <strong>Retraction reason:</strong> ${reasons}
@@ -194,7 +196,7 @@ function renderCitationCard(citation: CitationData): string {
     `;
   } else if ((citation.status === 'fake-likely' || citation.status === 'fake-probably') && citation.validation?.discrepancies) {
     const discrepancies = citation.validation.discrepancies
-      .map((d: any) => `${d.field}: "${d.provided}" → "${d.actual}"`)
+      .map((d: any) => `${escapeHtml(d.field)}: "${escapeHtml(d.provided)}" \u2192 "${escapeHtml(d.actual)}"`)
       .join('<br>');
     detailsHtml = `
       <div class="citation-card__discrepancy">
@@ -203,13 +205,17 @@ function renderCitationCard(citation: CitationData): string {
     `;
   }
 
+  const safeTitle = escapeHtml(citation.title || 'Untitled');
+  const safeId = escapeHtml(citation.id);
+  const safeDoi = citation.doi ? escapeHtml(citation.doi) : '';
+
   return `
-    <div class="citation-card ${statusClass}" data-id="${citation.id}">
+    <div class="citation-card ${statusClass}" data-id="${safeId}">
       <div class="citation-card__header">
         <span class="citation-card__status">${statusIcons[citation.status] || '?'}</span>
-        <span class="citation-card__title">${citation.title || 'Untitled'}</span>
+        <span class="citation-card__title">${safeTitle}</span>
       </div>
-      ${citation.doi ? `<div class="citation-card__doi">${citation.doi}</div>` : ''}
+      ${safeDoi ? `<div class="citation-card__doi">${safeDoi}</div>` : ''}
       ${detailsHtml}
     </div>
   `;
@@ -225,7 +231,7 @@ function showEmptyState(message: string) {
   content.innerHTML = `
     <div class="empty-state">
       <div class="empty-state__icon">📄</div>
-      <div class="empty-state__text">${message}</div>
+      <div class="empty-state__text">${escapeHtml(message)}</div>
     </div>
   `;
 }

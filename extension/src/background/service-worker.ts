@@ -11,8 +11,6 @@ const pageStatus: Map<number, { url: string; citations: any[] }> = new Map();
  * Initialize service worker
  */
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('[Citicious] Extension installed');
-
   // Set up side panel behavior
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 });
@@ -24,7 +22,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   handleMessage(message, sender)
     .then(sendResponse)
     .catch((error) => {
-      console.error('[Citicious] Error handling message:', error);
       sendResponse({ error: error.message });
     });
 
@@ -64,7 +61,6 @@ async function handleMessage(
       return { success: true };
 
     default:
-      console.warn('[Citicious] Unknown message type:', message.type);
       return { error: 'Unknown message type' };
   }
 }
@@ -106,7 +102,6 @@ async function handleBatchCheck(
         }
       }
     } catch (error) {
-      console.error('[Citicious] Batch check error:', error);
       // Return skip status for failed checks (can't determine)
       for (const citation of toCheck) {
         results.push({
@@ -166,7 +161,6 @@ function getCacheKey(citation: ExtractedCitation): string {
  */
 function clearCache() {
   resultsCache.clear();
-  console.log('[Citicious] Cache cleared');
 }
 
 // Clear cache every 24 hours
