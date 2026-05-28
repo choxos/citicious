@@ -149,6 +149,13 @@
   border: 1px solid #BBF7D0;
 }
 
+/* Unverified - Neutral blue (registered DOI, not in scholarly DBs) */
+.citicious-badge--unverified {
+  background: #DBEAFE;
+  color: #2563EB;
+  border: 1px solid #BFDBFE;
+}
+
 /* Retracted - Red */
 .citicious-badge--retracted {
   background: #FEE2E2;
@@ -282,6 +289,12 @@
     background: #422006;
     color: #FDE047;
     border-color: #713F12;
+  }
+
+  .citicious-badge--unverified {
+    background: #172554;
+    color: #93C5FD;
+    border-color: #1E3A8A;
   }
 
   .citicious-badge--checking {

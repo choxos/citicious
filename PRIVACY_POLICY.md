@@ -1,6 +1,6 @@
 # Privacy Policy for Citicious
 
-**Last updated:** March 27, 2026
+**Last updated:** May 21, 2026
 
 ## Overview
 
@@ -31,24 +31,27 @@ Citicious accesses the following data from webpages you visit:
 
 1. DOIs and citation identifiers are extracted from the current webpage
 2. These identifiers are sent to public academic APIs (CrossRef, OpenAlex) to verify they exist
-3. Results are cached locally in your browser to improve performance
-4. No data is sent to our servers - all API calls go directly to public academic databases
+3. If a DOI is not found in those databases, the identifier is checked against the public DOI resolver (doi.org) to confirm whether it is a registered DOI before any "fake" determination is made
+4. Results are cached locally in your browser to avoid re-querying the same identifiers
+5. No data is sent to our servers - all API calls go directly to public databases
 
 ### Third-Party Services
 
 Citicious makes requests to the following public APIs:
 
-- **CrossRef API** (api.crossref.org) - To verify DOI existence and retrieve metadata
-- **OpenAlex API** (api.openalex.org) - As a fallback for DOI verification
+- **CrossRef API** (api.crossref.org) - To verify DOI existence and retrieve metadata, including retraction notices
+- **OpenAlex API** (api.openalex.org) - As a fallback for DOI verification, for PubMed ID lookups, and for the retraction flag
+- **DOI Resolver** (doi.org) - To confirm whether a DOI is registered with any registration agency before flagging it as fake
 
-These services have their own privacy policies. We only send DOI strings to these services - no personal or identifying information.
+These services have their own privacy policies. We only send DOI or PubMed ID strings to these services - no personal or identifying information.
 
 ## Data Storage
 
-- Citation validation results are cached temporarily in memory while the browser is open
-- Cache is cleared automatically every 24 hours, or when the browser is closed
-- No data is stored on external servers or persisted to disk
-- You can clear cached data by reloading or closing the browser tab
+- Citation validation results are cached locally on your device using the browser's extension storage (`chrome.storage.local`)
+- Each cached entry expires automatically after 24 hours and is then removed
+- The cache contains only DOIs/PubMed IDs and their public validation results - no personal data
+- No data is stored on external servers
+- You can clear cached data at any time by removing the extension
 
 ## Data Sharing
 
@@ -61,7 +64,8 @@ We do not:
 ## Permissions Explained
 
 - **sidePanel**: Displays a summary of citation validation results in a sidebar
-- **Host permissions (<all_urls>)**: Needed to run on any webpage containing scientific citations and to query public academic APIs (CrossRef, OpenAlex)
+- **storage**: Caches DOI/PubMed ID validation results locally (with a 24-hour expiry) so the same identifiers are not re-queried on every visit
+- **Host permissions (<all_urls>)**: Needed to run on any webpage containing scientific citations and to query public APIs (CrossRef, OpenAlex, and the doi.org resolver)
 
 ## Your Rights
 

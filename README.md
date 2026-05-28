@@ -20,9 +20,10 @@ Citicious is a Chrome extension that helps researchers and readers identify:
 
 ## How It Works
 
-1. **Retraction Detection**: Uses the [Retraction Watch Database](https://www.crossref.org/documentation/retrieve-metadata/retraction-watch/) via CrossRef API (68,000+ retracted articles)
-2. **Citation Validation**: Verifies citations against CrossRef and OpenAlex APIs
-3. **Fake Detection**: Identifies potentially hallucinated citations by checking if DOIs exist and comparing metadata (authors, year, title, journal)
+1. **Retraction Detection**: Uses the [Retraction Watch Database](https://www.crossref.org/documentation/retrieve-metadata/retraction-watch/) via the CrossRef API, and OpenAlex's `is_retracted` flag. Expressions of concern and corrections are surfaced separately from full retractions.
+2. **Citation Validation**: Verifies citations against the CrossRef and OpenAlex APIs.
+3. **Fake Detection**: Flags a DOI as fake only when it is absent from CrossRef and OpenAlex **and** fails to resolve against the [DOI Handle System](https://www.doi.org/) (`doi.org`). A registered DOI that simply isn't indexed in scholarly databases (e.g. a dataset, software, or thesis) is shown as **Unverified**, never as fake.
+4. **Metadata Checks**: Compares the cited title against the authoritative record and flags significant mismatches conservatively (only on a confidently-extracted, critically dissimilar title).
 
 ## Screenshot
 
@@ -62,20 +63,24 @@ Citicious is a Chrome extension that helps researchers and readers identify:
 | Status | Badge | Description |
 |--------|-------|-------------|
 | Retracted | ⚠️ RETRACTED | Article has been formally retracted |
-| Fake | ❌ FAKE | Citation could not be verified in databases |
-| Suspicious | ❓ SUSPICIOUS | Metadata discrepancies found |
-| Verified | ✓ Verified | Citation confirmed valid |
+| Concern | ⚠️ CONCERN | Expression of concern issued for the article |
+| Correction | 📝 CORRECTION | Correction / erratum issued for the article |
+| Fake (likely) | ❌ FAKE (likely) | DOI does not exist in any database and fails to resolve at doi.org |
+| Fake (probably) | ⚠️ FAKE (probably) | DOI exists but the cited title critically mismatches the record |
+| Verified | ✓ Verified | Citation confirmed valid and not retracted |
+| Unverified | ℹ Unverified | DOI is registered (resolves at doi.org) but not indexed in CrossRef/OpenAlex |
 
 ## Tech Stack
 
 - **Extension**: Chrome Manifest V3, TypeScript, Webpack
-- **External APIs**: CrossRef, OpenAlex
+- **External APIs**: CrossRef, OpenAlex, doi.org (DOI resolver)
 
 ## Data Sources
 
-- [Retraction Watch Database](https://www.crossref.org/documentation/retrieve-metadata/retraction-watch/) - 68,000+ retracted articles, updated daily
+- [Retraction Watch Database](https://www.crossref.org/documentation/retrieve-metadata/retraction-watch/) - retracted articles, surfaced via CrossRef metadata
 - [CrossRef API](https://www.crossref.org/documentation/retrieve-metadata/rest-api/) - DOI metadata and retraction notices
-- [OpenAlex API](https://docs.openalex.org/) - Open catalog of scholarly works
+- [OpenAlex API](https://docs.openalex.org/) - Open catalog of scholarly works (also provides an `is_retracted` flag and PMID lookups)
+- [DOI Handle System](https://www.doi.org/the-identifier/resources/factsheets/doi-system-and-the-handle-system) - authoritative existence check across all DOI registration agencies
 
 ## Contributing
 

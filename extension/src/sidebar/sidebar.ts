@@ -177,6 +177,7 @@ function renderCitationCard(citation: CitationData): string {
     'fake-likely': '❌',
     'fake-probably': '⚠️',
     verified: '✓',
+    unverified: 'ℹ',
     checking: '⟳',
     skip: '',
   };
@@ -201,6 +202,12 @@ function renderCitationCard(citation: CitationData): string {
     detailsHtml = `
       <div class="citation-card__discrepancy">
         <strong>Discrepancies:</strong><br>${discrepancies}
+      </div>
+    `;
+  } else if (citation.status === 'unverified') {
+    detailsHtml = `
+      <div class="citation-card__reason">
+        Registered DOI, but not indexed in CrossRef/OpenAlex (e.g. dataset, software, thesis).
       </div>
     `;
   }

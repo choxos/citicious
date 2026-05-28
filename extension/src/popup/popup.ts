@@ -173,6 +173,13 @@ async function handleManualCheck(doi: string) {
           This citation exists and is not retracted.
         </div>
       `;
+    } else if (result.status === 'unverified') {
+      resultEl.innerHTML = `
+        <div class="manual-check__result manual-check__result--unknown">
+          <strong>ℹ Unverified</strong><br>
+          This DOI is registered (resolves at doi.org) but is not indexed in CrossRef/OpenAlex — common for datasets, software, or theses.
+        </div>
+      `;
     } else {
       resultEl.innerHTML = `
         <div class="manual-check__result manual-check__result--unknown">

@@ -1,18 +1,97 @@
 import { citiciousAPI } from '../shared/api-client';
 import type { ExtractedCitation, FullCheckResult } from '../shared/types';
 
-// Cache for check results
-const resultsCache: Map<string, FullCheckResult> = new Map();
+// Persistent cache (chrome.storage.local). An in-memory Map is unreliable under
+// Manifest V3 because the service worker is terminated when idle, which would
+// wipe the cache (and any setInterval) within ~30s. Entries carry a timestamp
+// and are treated as misses once older than CACHE_TTL_MS (TTL enforced on read).
+const CACHE_PREFIX = 'citicious:cache:';
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-// Page status storage
+interface CacheEntry {
+  result: FullCheckResult;
+  ts: number;
+}
+
+// Page status storage (per tab, in-memory — only needed while the page is open)
 const pageStatus: Map<number, { url: string; citations: any[] }> = new Map();
+
+const SKIP_RESULT: FullCheckResult = {
+  status: 'skip',
+  isRetracted: false,
+  retractionDetails: null,
+  validation: null,
+};
+
+/**
+ * Read a cached result, honoring the TTL. Expired entries are removed.
+ */
+async function getCached(key: string): Promise<FullCheckResult | null> {
+  const storageKey = CACHE_PREFIX + key;
+  const stored = await chrome.storage.local.get(storageKey);
+  const entry = stored[storageKey] as CacheEntry | undefined;
+
+  if (entry && typeof entry.ts === 'number' && Date.now() - entry.ts < CACHE_TTL_MS) {
+    return entry.result;
+  }
+
+  // Expired or malformed -> opportunistic cleanup
+  if (entry) {
+    await chrome.storage.local.remove(storageKey);
+  }
+  return null;
+}
+
+/**
+ * Store a result. Transient "skip" results (API/network errors) are NOT cached
+ * so they get retried on the next visit.
+ */
+async function setCached(key: string, result: FullCheckResult): Promise<void> {
+  if (!key || result.status === 'skip') return;
+  const entry: CacheEntry = { result, ts: Date.now() };
+  await chrome.storage.local.set({ [CACHE_PREFIX + key]: entry });
+}
+
+/**
+ * Remove all expired cache entries. Run on startup/install to bound growth,
+ * since read-time TTL only cleans entries that happen to be read again.
+ */
+async function sweepExpiredCache(): Promise<void> {
+  const all = await chrome.storage.local.get(null);
+  const now = Date.now();
+  const toRemove: string[] = [];
+
+  for (const [key, value] of Object.entries(all)) {
+    if (!key.startsWith(CACHE_PREFIX)) continue;
+    const entry = value as CacheEntry | undefined;
+    if (!entry || typeof entry.ts !== 'number' || now - entry.ts >= CACHE_TTL_MS) {
+      toRemove.push(key);
+    }
+  }
+
+  if (toRemove.length > 0) {
+    await chrome.storage.local.remove(toRemove);
+  }
+}
+
+/**
+ * Generate cache key for a citation
+ */
+function getCacheKey(citation: ExtractedCitation): string {
+  return citation.doi || citation.pmid || citation.url || citation.title || citation.id;
+}
 
 /**
  * Initialize service worker
  */
 chrome.runtime.onInstalled.addListener(() => {
   // Set up side panel behavior
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+  sweepExpiredCache().catch(() => {});
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  sweepExpiredCache().catch(() => {});
 });
 
 /**
@@ -76,9 +155,7 @@ async function handleBatchCheck(
 
   // Check cache first
   for (const citation of citations) {
-    const cacheKey = getCacheKey(citation);
-    const cached = resultsCache.get(cacheKey);
-
+    const cached = await getCached(getCacheKey(citation));
     if (cached) {
       results.push({ id: citation.id, result: cached });
     } else {
@@ -94,25 +171,14 @@ async function handleBatchCheck(
       for (const citation of toCheck) {
         const result = apiResults.get(citation.id);
         if (result) {
-          // Cache the result
-          const cacheKey = getCacheKey(citation);
-          resultsCache.set(cacheKey, result);
-
+          await setCached(getCacheKey(citation), result);
           results.push({ id: citation.id, result });
         }
       }
-    } catch (error) {
+    } catch {
       // Return skip status for failed checks (can't determine)
       for (const citation of toCheck) {
-        results.push({
-          id: citation.id,
-          result: {
-            status: 'skip',
-            isRetracted: false,
-            retractionDetails: null,
-            validation: null,
-          },
-        });
+        results.push({ id: citation.id, result: SKIP_RESULT });
       }
     }
   }
@@ -133,44 +199,22 @@ async function handleSingleCheck(citation: {
   journal?: string;
 }): Promise<FullCheckResult> {
   const cacheKey = citation.doi || citation.pmid || citation.url || citation.title || '';
-  const cached = resultsCache.get(cacheKey);
 
+  const cached = cacheKey ? await getCached(cacheKey) : null;
   if (cached) {
     return cached;
   }
 
   const result = await citiciousAPI.checkCitation(citation);
-
-  // Cache the result
-  if (cacheKey) {
-    resultsCache.set(cacheKey, result);
-  }
-
+  await setCached(cacheKey, result);
   return result;
 }
 
 /**
- * Generate cache key for a citation
- */
-function getCacheKey(citation: ExtractedCitation): string {
-  return citation.doi || citation.pmid || citation.url || citation.title || citation.id;
-}
-
-/**
- * Clear cache (called periodically or on user request)
- */
-function clearCache() {
-  resultsCache.clear();
-}
-
-// Clear cache every 24 hours
-setInterval(clearCache, 24 * 60 * 60 * 1000);
-
-/**
  * Handle tab updates (URL changes)
  */
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete' && tab.url) {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === 'complete') {
     // Clear page status for this tab on navigation
     pageStatus.delete(tabId);
   }

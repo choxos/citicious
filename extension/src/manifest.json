@@ -9,10 +9,13 @@
     "128": "assets/icons/icon-128.png"
   },
   "permissions": [
-    "sidePanel"
+    "sidePanel",
+    "storage"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "https://api.crossref.org/*",
+    "https://api.openalex.org/*",
+    "https://doi.org/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js",

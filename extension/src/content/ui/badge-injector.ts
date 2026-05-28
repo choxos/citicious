@@ -4,6 +4,7 @@ import type { CitationStatus, RetractionDetails, Discrepancy } from '../../share
 // Note: 'skip' status doesn't show a badge
 const BADGE_CONFIG: Partial<Record<CitationStatus, { icon: string; label: string; className: string }>> = {
   verified: { icon: '✓', label: 'Verified', className: 'citicious-badge--verified' },
+  unverified: { icon: 'ℹ', label: 'Unverified', className: 'citicious-badge--unverified' },
   retracted: { icon: '⚠️', label: 'RETRACTED', className: 'citicious-badge--retracted' },
   concern: { icon: '⚠️', label: 'CONCERN', className: 'citicious-badge--concern' },
   correction: { icon: '📝', label: 'CORRECTION', className: 'citicious-badge--correction' },
@@ -24,7 +25,7 @@ export function injectTopBanner(
   discrepancies?: Discrepancy[]
 ): HTMLElement | null {
   // Skip statuses that don't need a banner
-  if (status === 'verified' || status === 'skip' || status === 'checking') {
+  if (status === 'verified' || status === 'unverified' || status === 'skip' || status === 'checking') {
     return null;
   }
 
@@ -155,6 +156,8 @@ export function injectBadge(
     badge.title = `Significant discrepancies: ${discrepancies.map(d => d.field).join(', ')}`;
   } else if (status === 'verified') {
     badge.title = 'Citation verified in academic databases';
+  } else if (status === 'unverified') {
+    badge.title = 'This DOI is registered (resolves at doi.org) but is not indexed in CrossRef/OpenAlex — common for datasets, software, or theses';
   }
 
   // Add click handler
@@ -235,6 +238,8 @@ export function updateBadge(
     existingBadge.title = `Significant discrepancies: ${discrepancies.map(d => d.field).join(', ')}`;
   } else if (status === 'verified') {
     existingBadge.title = 'Citation verified in academic databases';
+  } else if (status === 'unverified') {
+    existingBadge.title = 'This DOI is registered (resolves at doi.org) but is not indexed in CrossRef/OpenAlex — common for datasets, software, or theses';
   }
 }
 

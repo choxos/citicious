@@ -127,16 +127,28 @@ export function extractCurrentArticleDoi(document: Document): ExtractedCitation 
  * Find the reference section in the document
  */
 export function findReferenceSection(document: Document): HTMLElement | null {
-  // Common selectors for reference sections (specific, not sidebar-like elements)
+  // Common selectors for reference sections (specific, not sidebar-like elements).
+  // Covers the markup used by major publishers (Springer/Nature, Elsevier,
+  // Wiley, PMC, JATS-derived sites) plus the ARIA DPUB bibliography role.
   const selectors = [
+    '[role="doc-bibliography"]',
     '#references',
     '#bibliography',
     '#reference-section',
     '#ref-list',
+    '#bib',
+    '#Bib1', // Springer/Nature
+    'section#bibliography',
+    'section[data-title="References" i]',
+    'section[aria-label*="reference" i]',
+    'ol.references',
+    'dl.references',
     '.references',
     '.bibliography',
     '.reference-list',
-    'section[data-title="References"]',
+    '.ref-list',
+    '.article-references',
+    '.c-article-references', // Nature
   ];
 
   for (const selector of selectors) {
@@ -146,16 +158,15 @@ export function findReferenceSection(document: Document): HTMLElement | null {
     }
   }
 
-  // Look for h2/h3/h4 with "References" or "Bibliography" heading and get following content
+  // Look for a section heading like "References"/"Bibliography" and return its
+  // container. Kept to standalone headings to avoid matching sidebar widgets
+  // like "References & Citations".
+  const HEADING_TERMS = '(references?|bibliography|works cited|literature cited|references and notes)';
+  const headingRegex = new RegExp(`^(?:\\d+\\.?\\s*)?${HEADING_TERMS}$`);
   const headings = document.querySelectorAll('h1, h2, h3, h4');
   for (const heading of headings) {
     const headingText = heading.textContent?.trim().toLowerCase() || '';
-    // Must be a standalone heading like "References" or "Bibliography", not "References & Citations" sidebar
-    if (
-      headingText === 'references' ||
-      headingText === 'bibliography' ||
-      headingText.match(/^\d+\.?\s*(references|bibliography)$/) // e.g., "5. References"
-    ) {
+    if (headingRegex.test(headingText)) {
       // Return the parent section or the heading's next siblings container
       const parent = heading.closest('section, article, .content, .paper-content, main') || heading.parentElement;
       if (parent) {

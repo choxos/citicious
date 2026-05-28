@@ -110,7 +110,25 @@ function isRelevantPage(): boolean {
  */
 async function scanPage() {
   // Extract citations from the page
-  const citations = scanPageForDois(document);
+  const extracted = scanPageForDois(document);
+
+  // Skip citations we've already processed so MutationObserver rescans don't
+  // re-inject "Checking…" badges or double-count references. scanPageForDois
+  // generates fresh ids each run, so dedupe by DOI/PMID and by element.
+  const seenKeys = new Set<string>();
+  const seenElements = new Set<HTMLElement>();
+  for (const c of checkedCitations.values()) {
+    if (c.doi) seenKeys.add(`doi:${c.doi}`);
+    if (c.pmid) seenKeys.add(`pmid:${c.pmid}`);
+    seenElements.add(c.element);
+  }
+
+  const citations = extracted.filter((c) => {
+    const key = c.doi ? `doi:${c.doi}` : c.pmid ? `pmid:${c.pmid}` : null;
+    if (key && seenKeys.has(key)) return false;
+    if (seenElements.has(c.element)) return false;
+    return true;
+  });
 
   if (citations.length === 0) {
     return;
@@ -296,6 +314,11 @@ function observePageChanges() {
         for (const node of mutation.addedNodes) {
           if (node.nodeType === Node.ELEMENT_NODE) {
             const element = node as Element;
+            // Ignore the extension's own injected badges/banners to avoid a
+            // self-triggered rescan loop.
+            if (element.closest?.('.citicious-badge, .citicious-banner')) {
+              continue;
+            }
             // Check if added element or its children contain DOI patterns
             if (
               element.innerHTML?.includes('10.') ||
