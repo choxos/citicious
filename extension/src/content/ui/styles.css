@@ -264,15 +264,27 @@
 }
 
 /* References summary variant: compact neutral single-row bar whose colored
-   chips carry the severity signal; the top stripe shows the worst severity */
+   chips carry the severity signal; the top stripe shows the worst severity.
+   Frosted-glass background so content scrolling underneath stays softly
+   visible instead of being blocked by an opaque strip. */
 .citicious-banner.citicious-banner--summary {
-  --citicious-bg: #FFFFFF;
+  --citicious-bg: rgba(255, 255, 255, 0.72);
   --citicious-fg: #1F2937;
   --citicious-chip: rgba(31, 41, 55, 0.06);
   --citicious-focus: #1D4ED8;
   padding: 6px 16px !important;
   border-bottom: 1px solid rgba(31, 41, 55, 0.12) !important;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12) !important;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1) !important;
+  backdrop-filter: blur(14px) saturate(1.5) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.5) !important;
+}
+
+/* Without backdrop-filter support the translucent background would just
+   bleed text through illegibly, so fall back to near-opaque */
+@supports not (backdrop-filter: blur(4px)) {
+  .citicious-banner.citicious-banner--summary {
+    --citicious-bg: rgba(255, 255, 255, 0.97);
+  }
 }
 
 .citicious-banner.citicious-banner--summary-retracted {
@@ -290,11 +302,13 @@
 .citicious-banner .citicious-banner__inner--summary {
   display: flex !important;
   align-items: center !important;
+  justify-content: center !important;
   flex-wrap: wrap !important;
   gap: 6px 10px !important;
   width: 100% !important;
   max-width: 1120px !important;
   margin: 0 auto !important;
+  padding: 0 44px !important;
 }
 
 .citicious-banner .citicious-banner__summary-label {
@@ -343,10 +357,14 @@
   color: #A16207 !important;
 }
 
+/* Close pinned to the right edge so the summary content can center */
 .citicious-banner .citicious-banner__close--summary {
+  position: absolute !important;
+  top: 50% !important;
+  right: 12px !important;
+  transform: translateY(-50%) !important;
   width: 30px !important;
   height: 30px !important;
-  margin-left: auto !important;
   border: none !important;
   border-radius: 6px !important;
   font-size: 20px !important;
@@ -524,11 +542,17 @@
   }
 
   .citicious-banner.citicious-banner--summary {
-    --citicious-bg: #111827;
+    --citicious-bg: rgba(17, 24, 39, 0.68);
     --citicious-fg: #F3F4F6;
     --citicious-chip: rgba(255, 255, 255, 0.1);
     --citicious-focus: #93C5FD;
     border-bottom-color: rgba(255, 255, 255, 0.12) !important;
+  }
+
+  @supports not (backdrop-filter: blur(4px)) {
+    .citicious-banner.citicious-banner--summary {
+      --citicious-bg: rgba(17, 24, 39, 0.97);
+    }
   }
 
   .citicious-banner .citicious-banner__chip--red {
