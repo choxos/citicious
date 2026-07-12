@@ -85,6 +85,9 @@
   .citicious-banner__brand,
   .citicious-banner__title,
   .citicious-banner__summary,
+  .citicious-banner__summary-label,
+  .citicious-banner__chips,
+  .citicious-banner__chip,
   .citicious-banner__details,
   .citicious-banner__meta,
   .citicious-banner__meta-item,
@@ -260,13 +263,104 @@
   transform: translateY(-8px) !important;
 }
 
-/* Inline Badges - Compact styling */
+/* References summary variant: compact neutral single-row bar whose colored
+   chips carry the severity signal; the top stripe shows the worst severity */
+.citicious-banner.citicious-banner--summary {
+  --citicious-bg: #FFFFFF;
+  --citicious-fg: #1F2937;
+  --citicious-chip: rgba(31, 41, 55, 0.06);
+  --citicious-focus: #1D4ED8;
+  padding: 6px 16px !important;
+  border-bottom: 1px solid rgba(31, 41, 55, 0.12) !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12) !important;
+}
+
+.citicious-banner.citicious-banner--summary-retracted {
+  --citicious-accent: #DC2626;
+}
+
+.citicious-banner.citicious-banner--summary-concern {
+  --citicious-accent: #D97706;
+}
+
+.citicious-banner.citicious-banner--summary-correction {
+  --citicious-accent: #CA8A04;
+}
+
+.citicious-banner .citicious-banner__inner--summary {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 6px 10px !important;
+  width: 100% !important;
+  max-width: 1120px !important;
+  margin: 0 auto !important;
+}
+
+.citicious-banner .citicious-banner__summary-label {
+  display: inline !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 1.4 !important;
+  white-space: nowrap !important;
+}
+
+.citicious-banner .citicious-banner__chips {
+  display: inline-flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+  min-width: 0 !important;
+}
+
+.citicious-banner .citicious-banner__chip {
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 2px 9px !important;
+  border: 1px solid transparent !important;
+  border-radius: 999px !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  line-height: 1.5 !important;
+  white-space: nowrap !important;
+}
+
+.citicious-banner .citicious-banner__chip--red {
+  background: #FEE2E2 !important;
+  border-color: #FECACA !important;
+  color: #B91C1C !important;
+}
+
+.citicious-banner .citicious-banner__chip--amber {
+  background: #FEF3C7 !important;
+  border-color: #FDE68A !important;
+  color: #B45309 !important;
+}
+
+.citicious-banner .citicious-banner__chip--yellow {
+  background: #FEF9C3 !important;
+  border-color: #FEF08A !important;
+  color: #A16207 !important;
+}
+
+.citicious-banner .citicious-banner__close--summary {
+  width: 30px !important;
+  height: 30px !important;
+  margin-left: auto !important;
+  border: none !important;
+  border-radius: 6px !important;
+  font-size: 20px !important;
+}
+
+/* Inline Badges - Compact styling. Hardened against publisher CSS
+   (hanging indents, floats, inherited transforms) so badges never
+   collide with reference numbering. */
 .citicious-badge {
-  display: inline-flex;
+  display: inline-flex !important;
   align-items: center;
   gap: 3px;
   padding: 1px 6px;
-  margin: 0 2px;
+  margin: 0 2px 0 6px;
   border-radius: 3px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 11px;
@@ -274,6 +368,10 @@
   line-height: 1.2;
   vertical-align: baseline;
   white-space: nowrap;
+  text-indent: 0 !important;
+  text-transform: none;
+  float: none !important;
+  position: static !important;
   transition: transform 0.1s ease, box-shadow 0.1s ease;
   user-select: none;
 }
@@ -285,6 +383,7 @@
 
 .citicious-badge__icon {
   font-size: 10px;
+  font-weight: 700;
   line-height: 1;
 }
 
@@ -424,6 +523,32 @@
     --citicious-focus: #FEF9C3;
   }
 
+  .citicious-banner.citicious-banner--summary {
+    --citicious-bg: #111827;
+    --citicious-fg: #F3F4F6;
+    --citicious-chip: rgba(255, 255, 255, 0.1);
+    --citicious-focus: #93C5FD;
+    border-bottom-color: rgba(255, 255, 255, 0.12) !important;
+  }
+
+  .citicious-banner .citicious-banner__chip--red {
+    background: #450A0A !important;
+    border-color: #7F1D1D !important;
+    color: #FCA5A5 !important;
+  }
+
+  .citicious-banner .citicious-banner__chip--amber {
+    background: #451A03 !important;
+    border-color: #78350F !important;
+    color: #FCD34D !important;
+  }
+
+  .citicious-banner .citicious-banner__chip--yellow {
+    background: #422006 !important;
+    border-color: #713F12 !important;
+    color: #FDE047 !important;
+  }
+
   .citicious-badge--verified {
     background: #052E16;
     color: #86EFAC;
@@ -460,6 +585,25 @@
     background: #1F2937;
     color: #9CA3AF;
     border-color: #374151;
+  }
+
+  /* Reference row highlights: translucent dark tints instead of light
+     pastel washes, which turn muddy on dark publisher themes */
+  .citicious-reference--retracted,
+  .citicious-reference--fake-likely {
+    background: rgba(220, 38, 38, 0.16) !important;
+    border-left-color: #F87171 !important;
+  }
+
+  .citicious-reference--concern,
+  .citicious-reference--fake-probably {
+    background: rgba(217, 119, 6, 0.16) !important;
+    border-left-color: #FBBF24 !important;
+  }
+
+  .citicious-reference--correction {
+    background: rgba(202, 138, 4, 0.16) !important;
+    border-left-color: #FACC15 !important;
   }
 }
 

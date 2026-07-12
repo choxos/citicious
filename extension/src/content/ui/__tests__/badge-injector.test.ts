@@ -110,18 +110,24 @@ describe('injectReferencesBanner', () => {
     });
   });
 
-  it('summarizes per-status counts and styles by highest severity', () => {
+  it('renders per-severity chips and an accent for the highest severity', () => {
     const banner = injectReferencesBanner({
       retracted: 2,
       notFound: 0,
       mismatch: 1,
       concern: 0,
-      correction: 0,
+      correction: 3,
     })!;
-    expect(banner.className).toContain('citicious-banner--retracted');
-    const summary = banner.querySelector('.citicious-banner__summary')?.textContent || '';
-    expect(summary).toContain('2 retracted');
-    expect(summary).toContain('1 with mismatched details');
+    expect(banner.className).toContain('citicious-banner--summary-retracted');
+    const chips = [...banner.querySelectorAll('.citicious-banner__chip')];
+    expect(chips.map((c) => c.textContent)).toEqual([
+      '2 retracted',
+      '1 title mismatch',
+      '3 corrections',
+    ]);
+    expect(chips[0].className).toContain('citicious-banner__chip--red');
+    expect(chips[1].className).toContain('citicious-banner__chip--amber');
+    expect(chips[2].className).toContain('citicious-banner__chip--yellow');
   });
 
   it('returns null when there is nothing to report', () => {

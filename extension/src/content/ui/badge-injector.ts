@@ -2,14 +2,16 @@ import type { CitationStatus, RetractionDetails, Discrepancy } from '../../share
 
 // Badge configuration per status
 // Note: 'skip' status doesn't show a badge
+// Icons are monochrome text glyphs (not emoji) so they inherit each badge's
+// severity color and stay legible on both light and dark publisher themes.
 const BADGE_CONFIG: Partial<Record<CitationStatus, { icon: string; label: string; className: string }>> = {
   verified: { icon: '✓', label: 'Verified', className: 'citicious-badge--verified' },
   unverified: { icon: 'ℹ', label: 'Unverified', className: 'citicious-badge--unverified' },
-  retracted: { icon: '⚠️', label: 'RETRACTED', className: 'citicious-badge--retracted' },
-  concern: { icon: '⚠️', label: 'CONCERN', className: 'citicious-badge--concern' },
-  correction: { icon: '📝', label: 'CORRECTION', className: 'citicious-badge--correction' },
-  'fake-likely': { icon: '❌', label: 'DOI NOT FOUND', className: 'citicious-badge--fake-likely' },
-  'fake-probably': { icon: '⚠️', label: 'TITLE MISMATCH', className: 'citicious-badge--fake-probably' },
+  retracted: { icon: '!', label: 'RETRACTED', className: 'citicious-badge--retracted' },
+  concern: { icon: '!', label: 'CONCERN', className: 'citicious-badge--concern' },
+  correction: { icon: '!', label: 'CORRECTION', className: 'citicious-badge--correction' },
+  'fake-likely': { icon: '✕', label: 'DOI NOT FOUND', className: 'citicious-badge--fake-likely' },
+  'fake-probably': { icon: '!', label: 'TITLE MISMATCH', className: 'citicious-badge--fake-probably' },
   checking: { icon: '⟳', label: 'Checking...', className: 'citicious-badge--checking' },
   // 'skip' intentionally not included - no badge shown
 };
@@ -301,7 +303,9 @@ export interface ReferenceIssueCounts {
 }
 
 /**
- * Inject a summary banner for references with issues
+ * Inject a compact summary bar for references with issues: a neutral
+ * single-row strip whose per-severity colored chips show what was found
+ * and how many, with an accent stripe in the highest severity color.
  */
 export function injectReferencesBanner(counts: ReferenceIssueCounts): HTMLElement | null {
   const total =
@@ -313,28 +317,86 @@ export function injectReferencesBanner(counts: ReferenceIssueCounts): HTMLElemen
   // Remove existing banner if any
   document.getElementById('citicious-top-banner')?.remove();
 
-  // Highest severity wins: red, then amber, then yellow
-  let statusClass = 'correction';
+  // Highest severity wins for the accent stripe: red, then amber, then yellow
+  let severity = 'correction';
   if (counts.retracted > 0 || counts.notFound > 0) {
-    statusClass = 'retracted';
+    severity = 'retracted';
   } else if (counts.mismatch > 0 || counts.concern > 0) {
-    statusClass = 'concern';
+    severity = 'concern';
   }
 
-  const parts: string[] = [];
-  if (counts.retracted > 0) parts.push(`${counts.retracted} retracted`);
-  if (counts.notFound > 0) parts.push(`${counts.notFound} with unregistered DOIs`);
-  if (counts.mismatch > 0) parts.push(`${counts.mismatch} with mismatched details`);
-  if (counts.concern > 0) parts.push(`${counts.concern} with expressions of concern`);
-  if (counts.correction > 0) parts.push(`${counts.correction} with corrections`);
-  const summary = `This page cites ${parts.join(', ')} reference${total > 1 ? 's' : ''}. Flagged entries are highlighted in the bibliography.`;
+  const chips: { tone: 'red' | 'amber' | 'yellow'; text: string }[] = [];
+  if (counts.retracted > 0) {
+    chips.push({ tone: 'red', text: `${counts.retracted} retracted` });
+  }
+  if (counts.notFound > 0) {
+    chips.push({
+      tone: 'red',
+      text: `${counts.notFound} DOI${counts.notFound > 1 ? 's' : ''} not found`,
+    });
+  }
+  if (counts.mismatch > 0) {
+    chips.push({
+      tone: 'amber',
+      text: `${counts.mismatch} title mismatch${counts.mismatch > 1 ? 'es' : ''}`,
+    });
+  }
+  if (counts.concern > 0) {
+    chips.push({
+      tone: 'amber',
+      text: `${counts.concern} concern${counts.concern > 1 ? 's' : ''}`,
+    });
+  }
+  if (counts.correction > 0) {
+    chips.push({
+      tone: 'yellow',
+      text: `${counts.correction} correction${counts.correction > 1 ? 's' : ''}`,
+    });
+  }
 
-  const banner = buildBanner({
-    statusClass,
-    status: 'references-summary',
-    title: 'Citation issues found',
-    summary,
-  });
+  const banner = document.createElement('div');
+  banner.id = 'citicious-top-banner';
+  banner.className = `citicious-banner citicious-banner--summary citicious-banner--summary-${severity}`;
+  banner.setAttribute('data-citicious-status', 'references-summary');
+  banner.setAttribute('role', 'alert');
+  banner.setAttribute('aria-atomic', 'true');
+  banner.setAttribute(
+    'aria-label',
+    `Citicious found citation issues in this page's references: ${chips.map((c) => c.text).join(', ')}. Flagged entries are highlighted in the bibliography.`
+  );
+
+  const inner = document.createElement('div');
+  inner.className = 'citicious-banner__inner citicious-banner__inner--summary';
+
+  const brand = document.createElement('span');
+  brand.className = 'citicious-banner__brand';
+  brand.textContent = 'Citicious';
+  inner.appendChild(brand);
+
+  const label = document.createElement('span');
+  label.className = 'citicious-banner__summary-label';
+  label.textContent = `Citation issues in references:`;
+  inner.appendChild(label);
+
+  const chipRow = document.createElement('span');
+  chipRow.className = 'citicious-banner__chips';
+  for (const chip of chips) {
+    const el = document.createElement('span');
+    el.className = `citicious-banner__chip citicious-banner__chip--${chip.tone}`;
+    el.textContent = chip.text;
+    chipRow.appendChild(el);
+  }
+  inner.appendChild(chipRow);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'citicious-banner__close citicious-banner__close--summary';
+  closeBtn.type = 'button';
+  closeBtn.setAttribute('aria-label', 'Dismiss Citicious summary');
+  closeBtn.textContent = '×';
+  closeBtn.addEventListener('click', () => dismissBanner(banner));
+  inner.appendChild(closeBtn);
+
+  banner.appendChild(inner);
 
   // Insert at top of body
   document.body.insertBefore(banner, document.body.firstChild);
@@ -421,10 +483,12 @@ export function injectBadge(
     badge.setAttribute('aria-label', tooltip);
   }
 
-  // Insert after the element (or at the end if it's a block element)
+  // Append at the end of block reference containers. Prepending collides
+  // with list numbering on publishers that use hanging indents (the badge
+  // gets pulled left over the "7." marker); the end of the reference, next
+  // to the publisher's own outbound links, is collision-free.
   if (element.tagName === 'LI' || element.tagName === 'P' || element.tagName === 'DIV') {
-    // For block elements, prepend the badge
-    element.insertBefore(badge, element.firstChild);
+    element.appendChild(badge);
   } else {
     // For inline elements, insert after
     element.insertAdjacentElement('afterend', badge);
