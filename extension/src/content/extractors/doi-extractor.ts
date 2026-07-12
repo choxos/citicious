@@ -1,31 +1,75 @@
 import type { ExtractedCitation } from '../../shared/types';
 
 // DOI regex patterns based on CrossRef recommendations
-// Primary pattern - matches 97%+ of DOIs
+// Primary pattern: matches 97%+ of DOIs
 const DOI_REGEX = /\b(10\.\d{4,9}\/[^\s"'<>]+)\b/gi;
 
-// Pattern for DOIs in URLs
-const DOI_URL_REGEX = /https?:\/\/(?:dx\.)?doi\.org\/(10\.[^\s"'<>]+)/gi;
-
-// PubMed ID pattern
+// PubMed ID patterns (inline "PMID: n" text and pubmed.ncbi.nlm.nih.gov links)
 const PMID_REGEX = /\bPMID:\s*(\d+)\b/gi;
-const PMID_URL_REGEX = /pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/gi;
+const PMID_URL_REGEX = /pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/i;
 
 /**
  * Generate unique ID for a citation
  */
 function generateId(): string {
-  return `cit-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  return `cit-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
 /**
- * Normalize DOI (lowercase, remove trailing punctuation)
+ * Syntactic DOI check applied before any lookup, so malformed strings from
+ * data attributes or manual input are never sent to APIs (or labeled fake).
  */
-function normalizeDoi(doi: string): string {
-  return doi
-    .toLowerCase()
-    .trim()
-    .replace(/[.,;:)\]}>]+$/, ''); // Remove trailing punctuation
+export function isValidDoi(doi: string): boolean {
+  return /^10\.\d{4,9}\/\S+$/.test(doi);
+}
+
+/**
+ * Strip a trailing closer character only when it is unbalanced; DOIs can
+ * legitimately contain and even end with parentheses or brackets, e.g.
+ * 10.1016/S0140-6736(97)11096-0.
+ */
+function stripUnbalancedTrailing(doi: string, open: string, close: string): string {
+  let d = doi;
+  while (d.endsWith(close)) {
+    const opens = d.split(open).length - 1;
+    const closes = d.split(close).length - 1;
+    if (closes > opens) {
+      d = d.slice(0, -1).replace(/[.,;:!]+$/, '');
+    } else {
+      break;
+    }
+  }
+  return d;
+}
+
+/**
+ * Normalize DOI (lowercase, strip a doi.org URL prefix, URL query/fragment
+ * leftovers, and trailing sentence punctuation that is never part of the DOI)
+ */
+export function normalizeDoi(doi: string): string {
+  let d = doi.toLowerCase().trim();
+  d = d.replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '');
+  d = d.replace(/[?#].*$/, '');
+  d = d.replace(/[.,;:!]+$/, '');
+  d = stripUnbalancedTrailing(d, '(', ')');
+  d = stripUnbalancedTrailing(d, '[', ']');
+  d = stripUnbalancedTrailing(d, '{', '}');
+  return d;
+}
+
+/**
+ * Build a current-article citation from a raw DOI candidate, or null when the
+ * candidate does not survive normalization + syntax validation.
+ */
+function currentArticleCitation(raw: string, document: Document): ExtractedCitation | null {
+  const doi = normalizeDoi(raw);
+  if (!isValidDoi(doi)) return null;
+  return {
+    id: generateId(),
+    doi,
+    context: 'current-article',
+    element: document.body,
+  };
 }
 
 /**
@@ -46,12 +90,8 @@ export function extractCurrentArticleDoi(document: Document): ExtractedCitation 
     if (meta?.content) {
       const match = meta.content.match(/10\.\d{4,9}\/[^\s"'<>]+/);
       if (match) {
-        return {
-          id: generateId(),
-          doi: normalizeDoi(match[0]),
-          context: 'current-article',
-          element: document.body,
-        };
+        const citation = currentArticleCitation(match[0], document);
+        if (citation) return citation;
       }
     }
   }
@@ -61,26 +101,19 @@ export function extractCurrentArticleDoi(document: Document): ExtractedCitation 
   if (canonical?.href) {
     const match = canonical.href.match(/10\.\d{4,9}\/[^\s"'<>]+/);
     if (match) {
-      return {
-        id: generateId(),
-        doi: normalizeDoi(match[0]),
-        context: 'current-article',
-        element: document.body,
-      };
+      const citation = currentArticleCitation(match[0], document);
+      if (citation) return citation;
     }
   }
 
-  // Method 3: Check data attributes
+  // Method 3: Check data attributes (values are unconstrained, so the syntax
+  // check in currentArticleCitation is what keeps garbage out)
   const dataDoiElements = document.querySelectorAll('[data-doi]');
   for (const el of dataDoiElements) {
     const doi = el.getAttribute('data-doi');
     if (doi) {
-      return {
-        id: generateId(),
-        doi: normalizeDoi(doi),
-        context: 'current-article',
-        element: document.body,
-      };
+      const citation = currentArticleCitation(doi, document);
+      if (citation) return citation;
     }
   }
 
@@ -99,12 +132,8 @@ export function extractCurrentArticleDoi(document: Document): ExtractedCitation 
       const text = el.textContent || '';
       const match = text.match(/10\.\d{4,9}\/[^\s"'<>]+/);
       if (match) {
-        return {
-          id: generateId(),
-          doi: normalizeDoi(match[0]),
-          context: 'current-article',
-          element: document.body,
-        };
+        const citation = currentArticleCitation(match[0], document);
+        if (citation) return citation;
       }
     }
   }
@@ -112,12 +141,8 @@ export function extractCurrentArticleDoi(document: Document): ExtractedCitation 
   // Method 5: Check URL
   const urlMatch = window.location.href.match(/10\.\d{4,9}\/[^\s"'<>]+/);
   if (urlMatch) {
-    return {
-      id: generateId(),
-      doi: normalizeDoi(urlMatch[0]),
-      context: 'current-article',
-      element: document.body,
-    };
+    const citation = currentArticleCitation(urlMatch[0], document);
+    if (citation) return citation;
   }
 
   return null;
@@ -151,9 +176,15 @@ export function findReferenceSection(document: Document): HTMLElement | null {
     '.c-article-references', // Nature
   ];
 
+  // Jump-target anchors (e.g. PLOS's `<a id="references">`) and placeholder
+  // nodes match the id selectors but contain no list; require actual content
+  // before accepting a match so the real list further down is not shadowed.
+  const hasReferenceContent = (el: HTMLElement): boolean =>
+    el.querySelector('li, p, div, tr') !== null || (el.textContent || '').trim().length > 40;
+
   for (const selector of selectors) {
     const section = document.querySelector(selector) as HTMLElement;
-    if (section) {
+    if (section && hasReferenceContent(section)) {
       return section;
     }
   }
@@ -222,7 +253,6 @@ export function extractReferenceDois(
 ): ExtractedCitation[] {
   const citations: ExtractedCitation[] = [];
   const seenDois = new Set<string>();
-  const processedElements = new Set<HTMLElement>();
 
   // Method 1: Find links to doi.org
   const doiLinks = referenceSection.querySelectorAll('a[href*="doi.org"]');
@@ -231,10 +261,9 @@ export function extractReferenceDois(
     const match = href.match(/10\.\d{4,9}\/[^\s"'<>]+/);
     if (match) {
       const doi = normalizeDoi(match[0]);
-      if (!seenDois.has(doi)) {
+      if (isValidDoi(doi) && !seenDois.has(doi)) {
         seenDois.add(doi);
         const refElement = link.closest('li, p, div, tr') as HTMLElement || link as HTMLElement;
-        processedElements.add(refElement);
         citations.push({
           id: generateId(),
           doi,
@@ -260,11 +289,10 @@ export function extractReferenceDois(
 
     for (const match of doiMatches) {
       const doi = normalizeDoi(match[1]);
-      if (!seenDois.has(doi)) {
+      if (isValidDoi(doi) && !seenDois.has(doi)) {
         seenDois.add(doi);
         const parentElement = node.parentElement?.closest('li, p, div, tr') as HTMLElement;
         if (parentElement) {
-          processedElements.add(parentElement);
           citations.push({
             id: generateId(),
             doi,
@@ -277,7 +305,32 @@ export function extractReferenceDois(
     }
   }
 
-  // Method 3: Find PubMed IDs
+  // Shared for both PMID methods: attach the PMID to an existing citation for
+  // the same reference element, or create a PMID-only citation.
+  const seenPmids = new Set(citations.map((c) => c.pmid).filter(Boolean));
+  const addPmid = (pmid: string, el: HTMLElement) => {
+    if (seenPmids.has(pmid)) return;
+    const existing = citations.find(
+      (c) => c.element === el || c.element.contains(el) || el.contains(c.element)
+    );
+    if (existing) {
+      if (!existing.pmid) {
+        existing.pmid = pmid;
+        seenPmids.add(pmid);
+      }
+      return;
+    }
+    seenPmids.add(pmid);
+    citations.push({
+      id: generateId(),
+      pmid,
+      title: extractTitleFromReference(el),
+      context: 'reference',
+      element: el,
+    });
+  };
+
+  // Method 3: Find PubMed IDs written as "PMID: n" text
   const pmidMatches = referenceSection.innerHTML.matchAll(PMID_REGEX);
   for (const match of pmidMatches) {
     const pmid = match[1];
@@ -285,24 +338,19 @@ export function extractReferenceDois(
     const elements = referenceSection.querySelectorAll('li, p, div, tr');
     for (const el of elements) {
       if (el.textContent?.includes(`PMID: ${pmid}`) || el.textContent?.includes(`PMID:${pmid}`)) {
-        // Check if we already have a DOI for this reference
-        const existingDoi = citations.find(
-          (c) => c.element === el || c.element.contains(el) || el.contains(c.element)
-        );
-        if (!existingDoi) {
-          processedElements.add(el as HTMLElement);
-          citations.push({
-            id: generateId(),
-            pmid,
-            title: extractTitleFromReference(el as HTMLElement),
-            context: 'reference',
-            element: el as HTMLElement,
-          });
-        } else if (!existingDoi.pmid) {
-          existingDoi.pmid = pmid;
-        }
+        addPmid(pmid, el as HTMLElement);
         break;
       }
+    }
+  }
+
+  // Method 4: Find PubMed IDs linked via pubmed.ncbi.nlm.nih.gov URLs
+  const pubmedLinks = referenceSection.querySelectorAll('a[href*="pubmed.ncbi.nlm.nih.gov"]');
+  for (const link of pubmedLinks) {
+    const match = (link as HTMLAnchorElement).href.match(PMID_URL_REGEX);
+    if (match) {
+      const refElement = (link.closest('li, p, div, tr') as HTMLElement) || (link as HTMLElement);
+      addPmid(match[1], refElement);
     }
   }
 

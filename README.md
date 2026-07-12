@@ -65,8 +65,8 @@ Citicious is a Chrome extension that helps researchers and readers identify:
 | Retracted | ⚠️ RETRACTED | Article has been formally retracted |
 | Concern | ⚠️ CONCERN | Expression of concern issued for the article |
 | Correction | 📝 CORRECTION | Correction / erratum issued for the article |
-| Fake (likely) | ❌ FAKE (likely) | DOI does not exist in any database and fails to resolve at doi.org |
-| Fake (probably) | ⚠️ FAKE (probably) | DOI exists but the cited title critically mismatches the record |
+| Not found | ❌ DOI NOT FOUND | DOI does not exist in any database and fails to resolve at doi.org; possible typo or fabricated reference |
+| Mismatch | ⚠️ TITLE MISMATCH | DOI exists but the cited title critically mismatches the record |
 | Verified | ✓ Verified | Citation confirmed valid and not retracted |
 | Unverified | ℹ Unverified | DOI is registered (resolves at doi.org) but not indexed in CrossRef/OpenAlex |
 

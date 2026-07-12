@@ -189,12 +189,23 @@ function renderCitationCard(citation: CitationData): string {
   let detailsHtml = '';
 
   if (citation.status === 'retracted' && citation.details) {
-    const reasons = escapeHtml(citation.details.reason?.slice(0, 2).join(', ') || 'Unknown');
-    detailsHtml = `
-      <div class="citation-card__reason">
-        <strong>Retraction reason:</strong> ${reasons}
-      </div>
-    `;
+    // Retraction reasons are rarely available from the public APIs; show the
+    // block only when there is something to say.
+    if (citation.details.reason?.length) {
+      const reasons = escapeHtml(citation.details.reason.slice(0, 2).join(', '));
+      detailsHtml = `
+        <div class="citation-card__reason">
+          <strong>Retraction reason:</strong> ${reasons}
+        </div>
+      `;
+    } else if (citation.details.retractionNoticeUrl) {
+      const noticeUrl = escapeHtml(citation.details.retractionNoticeUrl);
+      detailsHtml = `
+        <div class="citation-card__reason">
+          <a href="${noticeUrl}" target="_blank" rel="noopener">View retraction notice</a>
+        </div>
+      `;
+    }
   } else if ((citation.status === 'fake-likely' || citation.status === 'fake-probably') && citation.validation?.discrepancies) {
     const discrepancies = citation.validation.discrepancies
       .map((d: any) => `${escapeHtml(d.field)}: "${escapeHtml(d.provided)}" \u2192 "${escapeHtml(d.actual)}"`)

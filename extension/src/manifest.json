@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "Citicious",
   "version": "0.1.0",
+  "minimum_chrome_version": "114",
   "description": "Detect retracted articles and fake/hallucinated citations in scientific papers",
   "icons": {
     "16": "assets/icons/icon-16.png",
@@ -23,7 +24,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": ["https://*/*"],
       "js": ["content/content-script.js"],
       "css": ["content/styles.css"],
       "run_at": "document_idle"

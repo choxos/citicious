@@ -185,7 +185,7 @@ async function checkDoiResolver(doi: string): Promise<'exists' | 'not_found' | '
 }
 
 /**
- * Classify a Crossref `update-to[].type` (or relation) into our status taxonomy.
+ * Classify a Crossref `updated-by[].type` (or relation) into our status taxonomy.
  */
 function classifyUpdateType(type: string): RetractionStatus | null {
   const t = (type || '').toLowerCase();
@@ -212,40 +212,80 @@ const SEVERITY_RANK: Record<RetractionStatus, number> = {
 
 function buildCrossrefDetails(work: any, update: any): RetractionDetails {
   return {
-    recordId: 0,
+    recordId: update?.['record-id'] ?? null,
     title: work.title?.[0] || null,
     journal: work['container-title']?.[0] || null,
     publisher: work.publisher || null,
     authors:
       work.author?.map((a: any) => (a.given && a.family ? `${a.given} ${a.family}` : a.name)) || [],
     retractionDate: update?.updated?.['date-time'] || null,
-    retractionNature: update?.type || 'Retraction',
+    retractionNature: update?.label || update?.type || 'Retraction',
     reason: [],
     retractionNoticeUrl: update?.DOI ? `https://doi.org/${update.DOI}` : null,
     originalPaperDate: null,
-    source: 'publisher',
+    source: update?.source === 'retraction-watch' ? 'retraction-watch' : 'publisher',
   };
+}
+
+/** Timestamp of an updated-by entry, for ordering retractions vs reinstatements. */
+function updateTimestamp(update: any): number {
+  if (typeof update?.updated?.timestamp === 'number') return update.updated.timestamp;
+  const parsed = Date.parse(update?.updated?.['date-time'] || '');
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 /**
  * Detect retraction / expression-of-concern / correction from Crossref metadata.
- * Picks the most severe signal when several are present.
+ *
+ * The ORIGINAL article carries `updated-by`, the list of notices that updated
+ * it (this is where Crossref surfaces Retraction Watch data). The notice
+ * itself carries `update-to`, so a work with only `update-to` IS a notice and
+ * must not be flagged as retracted. Picks the most severe signal, unless a
+ * reinstatement dated on or after it supersedes it.
  */
 function classifyRetraction(
   crossrefWork: any
 ): { status: RetractionStatus; details: RetractionDetails } | null {
-  let best: { status: RetractionStatus; details: RetractionDetails } | null = null;
+  const updatedBy = crossrefWork['updated-by'];
+  let retractionSuperseded = false;
+  if (Array.isArray(updatedBy)) {
+    let reinstatedTs: number | null = null;
+    for (const update of updatedBy) {
+      if ((update?.type || '').toLowerCase().includes('reinstat')) {
+        const ts = updateTimestamp(update);
+        if (reinstatedTs === null || ts > reinstatedTs) reinstatedTs = ts;
+      }
+    }
 
-  const updateTo = crossrefWork['update-to'];
-  if (Array.isArray(updateTo)) {
-    for (const update of updateTo) {
-      const status = classifyUpdateType(update?.type || '');
-      if (status && (!best || SEVERITY_RANK[status] > SEVERITY_RANK[best.status])) {
+    let best: { status: RetractionStatus; details: RetractionDetails } | null = null;
+    for (const update of updatedBy) {
+      const type = (update?.type || '').toLowerCase();
+      if (type.includes('reinstat')) continue;
+      const status = classifyUpdateType(type);
+      if (!status) continue;
+      // A reinstatement dated on or after a retraction supersedes that
+      // retraction, but leaves other signals (concern, correction) standing.
+      // An undated reinstatement (timestamp 0) provides no ordering evidence,
+      // so the retraction is kept in that case.
+      if (
+        status === 'retracted' &&
+        reinstatedTs !== null &&
+        reinstatedTs > 0 &&
+        reinstatedTs >= updateTimestamp(update)
+      ) {
+        retractionSuperseded = true;
+        continue;
+      }
+      if (!best || SEVERITY_RANK[status] > SEVERITY_RANK[best.status]) {
         best = { status, details: buildCrossrefDetails(crossrefWork, update) };
       }
     }
+    if (best) return best;
   }
-  if (best) return best;
+
+  // A superseded retraction must not be resurrected by the coarser relation
+  // fallback below, which knows nothing about reinstatements.
+  if (retractionSuperseded) return null;
 
   // Fallback: relation field
   const relation = crossrefWork.relation;
@@ -268,7 +308,7 @@ function classifyRetraction(
 
 function buildOpenAlexRetractionDetails(work: any): RetractionDetails {
   return {
-    recordId: 0,
+    recordId: null,
     title: work.title || work.display_name || null,
     journal: work.primary_location?.source?.display_name || null,
     publisher: work.primary_location?.source?.host_organization_name || null,

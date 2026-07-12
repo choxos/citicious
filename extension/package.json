@@ -7,7 +7,8 @@
     "build": "webpack --mode production",
     "clean": "rm -rf dist",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "package": "npm run build && rm -f citicious-extension-v${npm_package_version}.zip && cd dist && zip -rX ../citicious-extension-v${npm_package_version}.zip . -x '.DS_Store' -x '*/.DS_Store'"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.270",

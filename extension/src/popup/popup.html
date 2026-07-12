@@ -127,6 +127,31 @@
       color: #16A34A;
     }
 
+    .rescan {
+      margin-bottom: 16px;
+    }
+
+    .rescan button {
+      width: 100%;
+      padding: 8px 16px;
+      background: white;
+      color: #374151;
+      border: 1px solid #D1D5DB;
+      border-radius: 6px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    .rescan button:hover {
+      background: #F3F4F6;
+    }
+
+    .rescan button:disabled {
+      color: #9CA3AF;
+      cursor: not-allowed;
+    }
+
     .manual-check {
       background: white;
       border-radius: 8px;
@@ -243,12 +268,16 @@
       </div>
       <div class="stat stat--fake">
         <div class="stat__count" id="fake-count">0</div>
-        <div class="stat__label">Fake</div>
+        <div class="stat__label">Suspicious</div>
       </div>
       <div class="stat stat--verified">
         <div class="stat__count" id="verified-count">0</div>
         <div class="stat__label">Verified</div>
       </div>
+    </div>
+
+    <div class="rescan">
+      <button id="rescan-btn">Rescan page</button>
     </div>
 
     <div class="manual-check">

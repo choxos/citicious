@@ -13,9 +13,6 @@ interface CacheEntry {
   ts: number;
 }
 
-// Page status storage (per tab, in-memory — only needed while the page is open)
-const pageStatus: Map<number, { url: string; citations: any[] }> = new Map();
-
 const SKIP_RESULT: FullCheckResult = {
   status: 'skip',
   isRetracted: false,
@@ -75,10 +72,21 @@ async function sweepExpiredCache(): Promise<void> {
 }
 
 /**
- * Generate cache key for a citation
+ * Generate cache key for a citation. A page-extracted title influences the
+ * classification (metadata mismatch), so titled lookups get their own entries;
+ * a bad title extraction on one page must not poison the identifier's cached
+ * result for every other page.
  */
-function getCacheKey(citation: ExtractedCitation): string {
-  return citation.doi || citation.pmid || citation.url || citation.title || citation.id;
+function getCacheKey(citation: {
+  doi?: string;
+  pmid?: string;
+  url?: string;
+  title?: string;
+  id?: string;
+}): string {
+  const base = citation.doi || citation.pmid || citation.url || citation.title || citation.id || '';
+  const title = citation.title?.trim().toLowerCase();
+  return title && base !== title ? `${base}|t:${title}` : base;
 }
 
 /**
@@ -97,8 +105,8 @@ chrome.runtime.onStartup.addListener(() => {
 /**
  * Handle messages from content scripts
  */
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  handleMessage(message, sender)
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  handleMessage(message)
     .then(sendResponse)
     .catch((error) => {
       sendResponse({ error: error.message });
@@ -110,10 +118,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 /**
  * Process incoming messages
  */
-async function handleMessage(
-  message: any,
-  sender: chrome.runtime.MessageSender
-): Promise<any> {
+async function handleMessage(message: any): Promise<any> {
   switch (message.type) {
     case 'CHECK_BATCH':
       return handleBatchCheck(message.payload);
@@ -122,21 +127,9 @@ async function handleMessage(
       return handleSingleCheck(message.payload);
 
     case 'UPDATE_PAGE_STATUS':
-      if (sender.tab?.id) {
-        pageStatus.set(sender.tab.id, message.payload);
-      }
-      return { success: true };
-
-    case 'GET_PAGE_STATUS':
-      if (sender.tab?.id) {
-        return pageStatus.get(sender.tab.id) || { citations: [] };
-      }
-      return { citations: [] };
-
-    case 'OPEN_SIDEBAR':
-      if (sender.tab?.id) {
-        await chrome.sidePanel.open({ tabId: sender.tab.id });
-      }
+      // Broadcast consumed by the sidebar when it is open. Acking here
+      // guarantees the content script's sendMessage never rejects when the
+      // sidebar is closed.
       return { success: true };
 
     default:
@@ -198,7 +191,7 @@ async function handleSingleCheck(citation: {
   year?: number;
   journal?: string;
 }): Promise<FullCheckResult> {
-  const cacheKey = citation.doi || citation.pmid || citation.url || citation.title || '';
+  const cacheKey = getCacheKey(citation);
 
   const cached = cacheKey ? await getCached(cacheKey) : null;
   if (cached) {
@@ -209,20 +202,3 @@ async function handleSingleCheck(citation: {
   await setCached(cacheKey, result);
   return result;
 }
-
-/**
- * Handle tab updates (URL changes)
- */
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.status === 'complete') {
-    // Clear page status for this tab on navigation
-    pageStatus.delete(tabId);
-  }
-});
-
-/**
- * Handle tab removal
- */
-chrome.tabs.onRemoved.addListener((tabId) => {
-  pageStatus.delete(tabId);
-});

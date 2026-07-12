@@ -8,16 +8,68 @@ const BADGE_CONFIG: Partial<Record<CitationStatus, { icon: string; label: string
   retracted: { icon: '⚠️', label: 'RETRACTED', className: 'citicious-badge--retracted' },
   concern: { icon: '⚠️', label: 'CONCERN', className: 'citicious-badge--concern' },
   correction: { icon: '📝', label: 'CORRECTION', className: 'citicious-badge--correction' },
-  'fake-likely': { icon: '❌', label: 'FAKE (likely)', className: 'citicious-badge--fake-likely' },
-  'fake-probably': { icon: '⚠️', label: 'FAKE (probably)', className: 'citicious-badge--fake-probably' },
+  'fake-likely': { icon: '❌', label: 'DOI NOT FOUND', className: 'citicious-badge--fake-likely' },
+  'fake-probably': { icon: '⚠️', label: 'TITLE MISMATCH', className: 'citicious-badge--fake-probably' },
   checking: { icon: '⟳', label: 'Checking...', className: 'citicious-badge--checking' },
   // 'skip' intentionally not included - no badge shown
 };
 
+// The body margin as it was before the first banner was injected, so
+// dismissing the banner can restore the site's own layout. Null means
+// "nothing captured".
+let previousBodyMarginTop: string | null = null;
+
+function pushBodyDown(banner: HTMLElement): void {
+  if (previousBodyMarginTop === null) {
+    previousBodyMarginTop = document.body.style.marginTop;
+  }
+  document.body.style.marginTop = `${banner.offsetHeight}px`;
+}
+
+function restoreBodyMargin(): void {
+  if (previousBodyMarginTop !== null) {
+    document.body.style.marginTop = previousBodyMarginTop;
+    previousBodyMarginTop = null;
+  }
+}
+
+/**
+ * Tooltip text for a badge. Retraction reasons are rarely available from the
+ * public APIs, so the reason list is only mentioned when it is non-empty.
+ */
+function badgeTooltip(
+  status: CitationStatus,
+  details?: RetractionDetails,
+  discrepancies?: Discrepancy[]
+): string {
+  const reasons = details?.reason?.length ? `: ${details.reason.join(', ')}` : '';
+
+  switch (status) {
+    case 'retracted':
+      return `This article has been retracted${reasons}`;
+    case 'concern':
+      return `An expression of concern has been issued for this article${reasons}`;
+    case 'correction':
+      return `A correction has been issued for this article${reasons}`;
+    case 'fake-likely':
+      return 'This DOI is not registered at doi.org or indexed in academic databases; possible typo or fabricated reference';
+    case 'fake-probably':
+      return discrepancies?.length
+        ? `Citation details differ from the published record: ${discrepancies.map((d) => d.field).join(', ')}`
+        : 'Citation details differ from the published record';
+    case 'verified':
+      return 'Citation verified in academic databases';
+    case 'unverified':
+      return 'This DOI is registered (resolves at doi.org) but is not indexed in CrossRef/OpenAlex; common for datasets, software, or theses';
+    default:
+      return '';
+  }
+}
+
 /**
  * Create and inject a top banner for problematic articles
  * Only shows for: retracted, concern, correction, fake-likely, fake-probably
- * Does NOT show for: verified, skip, checking
+ * Does NOT show for: verified, unverified, skip, checking
  */
 export function injectTopBanner(
   status: CitationStatus,
@@ -58,10 +110,10 @@ export function injectTopBanner(
     linkText = 'View notice →';
   } else if (status === 'fake-likely') {
     icon = '❌';
-    text = 'FAKE CITATION DETECTED — DOI does not exist';
+    text = 'DOI NOT FOUND: this DOI is not registered and may be a fabricated reference';
   } else if (status === 'fake-probably') {
     icon = '⚠️';
-    text = 'SUSPICIOUS CITATION — Metadata mismatch detected';
+    text = 'TITLE MISMATCH: citation details differ from the published record';
   }
 
   if (!icon) {
@@ -90,8 +142,9 @@ export function injectTopBanner(
   const closeBtn = document.createElement('button');
   closeBtn.className = 'citicious-banner__close';
   closeBtn.setAttribute('aria-label', 'Dismiss banner');
-  closeBtn.textContent = '\u00D7';
+  closeBtn.textContent = '×';
   closeBtn.addEventListener('click', () => {
+    restoreBodyMargin();
     banner.classList.add('citicious-banner--hidden');
     setTimeout(() => banner.remove(), 300);
   });
@@ -100,8 +153,8 @@ export function injectTopBanner(
   // Insert at top of body
   document.body.insertBefore(banner, document.body.firstChild);
 
-  // Add body padding to prevent content overlap
-  document.body.style.marginTop = `${banner.offsetHeight}px`;
+  // Push page content down without losing the site's own margin
+  pushBodyDown(banner);
 
   return banner;
 }
@@ -114,8 +167,7 @@ export function injectBadge(
   element: HTMLElement,
   status: CitationStatus,
   details?: RetractionDetails,
-  discrepancies?: Discrepancy[],
-  onClick?: () => void
+  discrepancies?: Discrepancy[]
 ): HTMLElement | null {
   // Remove existing badge if any
   const existingBadge = element.querySelector('.citicious-badge');
@@ -143,31 +195,9 @@ export function injectBadge(
   badgeLabel.textContent = config.label;
   badge.appendChild(badgeLabel);
 
-  // Add tooltip with details
-  if (status === 'retracted' && details) {
-    badge.title = `Retracted: ${details.reason?.join(', ') || 'Unknown reason'}`;
-  } else if (status === 'concern' && details) {
-    badge.title = `Expression of Concern: ${details.reason?.join(', ') || 'See details'}`;
-  } else if (status === 'correction' && details) {
-    badge.title = `Correction issued: ${details.reason?.join(', ') || 'See details'}`;
-  } else if (status === 'fake-likely') {
-    badge.title = 'This DOI does not exist in academic databases';
-  } else if (status === 'fake-probably' && discrepancies?.length) {
-    badge.title = `Significant discrepancies: ${discrepancies.map(d => d.field).join(', ')}`;
-  } else if (status === 'verified') {
-    badge.title = 'Citation verified in academic databases';
-  } else if (status === 'unverified') {
-    badge.title = 'This DOI is registered (resolves at doi.org) but is not indexed in CrossRef/OpenAlex — common for datasets, software, or theses';
-  }
-
-  // Add click handler
-  if (onClick) {
-    badge.style.cursor = 'pointer';
-    badge.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      onClick();
-    });
+  const tooltip = badgeTooltip(status, details, discrepancies);
+  if (tooltip) {
+    badge.title = tooltip;
   }
 
   // Insert after the element (or at the end if it's a block element)
@@ -225,21 +255,9 @@ export function updateBadge(
   updatedLabel.textContent = config.label;
   existingBadge.appendChild(updatedLabel);
 
-  // Update tooltip
-  if (status === 'retracted' && details) {
-    existingBadge.title = `Retracted: ${details.reason?.join(', ') || 'Unknown reason'}`;
-  } else if (status === 'concern' && details) {
-    existingBadge.title = `Expression of Concern: ${details.reason?.join(', ') || 'See details'}`;
-  } else if (status === 'correction' && details) {
-    existingBadge.title = `Correction: ${details.reason?.join(', ') || 'See details'}`;
-  } else if (status === 'fake-likely') {
-    existingBadge.title = 'This DOI does not exist in academic databases';
-  } else if (status === 'fake-probably' && discrepancies?.length) {
-    existingBadge.title = `Significant discrepancies: ${discrepancies.map(d => d.field).join(', ')}`;
-  } else if (status === 'verified') {
-    existingBadge.title = 'Citation verified in academic databases';
-  } else if (status === 'unverified') {
-    existingBadge.title = 'This DOI is registered (resolves at doi.org) but is not indexed in CrossRef/OpenAlex — common for datasets, software, or theses';
+  const tooltip = badgeTooltip(status, details, discrepancies);
+  if (tooltip) {
+    existingBadge.title = tooltip;
   }
 }
 
@@ -248,10 +266,10 @@ export function updateBadge(
  */
 export function injectReferencesBanner(
   retractedCount: number,
-  fakeCount: number,
+  suspiciousCount: number,
   concernCount: number
 ): HTMLElement | null {
-  const totalProblems = retractedCount + fakeCount + concernCount;
+  const totalProblems = retractedCount + suspiciousCount + concernCount;
   if (totalProblems === 0) {
     return null;
   }
@@ -272,7 +290,7 @@ export function injectReferencesBanner(
   if (retractedCount > 0) {
     bannerClass = 'citicious-banner--retracted';
     icon = '⚠️';
-  } else if (fakeCount > 0) {
+  } else if (suspiciousCount > 0) {
     bannerClass = 'citicious-banner--fake-likely';
     icon = '❌';
   }
@@ -284,8 +302,8 @@ export function injectReferencesBanner(
   if (retractedCount > 0) {
     parts.push(`${retractedCount} retracted`);
   }
-  if (fakeCount > 0) {
-    parts.push(`${fakeCount} fake`);
+  if (suspiciousCount > 0) {
+    parts.push(`${suspiciousCount} suspicious`);
   }
   if (concernCount > 0) {
     parts.push(`${concernCount} with concerns`);
@@ -305,8 +323,9 @@ export function injectReferencesBanner(
   const closeBtn = document.createElement('button');
   closeBtn.className = 'citicious-banner__close';
   closeBtn.setAttribute('aria-label', 'Dismiss banner');
-  closeBtn.textContent = '\u00D7';
+  closeBtn.textContent = '×';
   closeBtn.addEventListener('click', () => {
+    restoreBodyMargin();
     banner.classList.add('citicious-banner--hidden');
     setTimeout(() => banner.remove(), 300);
   });
@@ -315,8 +334,8 @@ export function injectReferencesBanner(
   // Insert at top of body
   document.body.insertBefore(banner, document.body.firstChild);
 
-  // Add body padding to prevent content overlap
-  document.body.style.marginTop = `${banner.offsetHeight}px`;
+  // Push page content down without losing the site's own margin
+  pushBodyDown(banner);
 
   return banner;
 }
@@ -327,12 +346,5 @@ export function injectReferencesBanner(
 export function removeAllBadges(): void {
   document.querySelectorAll('.citicious-badge').forEach((badge) => badge.remove());
   document.querySelectorAll('.citicious-banner').forEach((banner) => banner.remove());
-  document.body.style.marginTop = '';
-}
-
-/**
- * Get the status icon for use in sidebar
- */
-export function getStatusIcon(status: CitationStatus): string {
-  return BADGE_CONFIG[status]?.icon || '?';
+  restoreBodyMargin();
 }

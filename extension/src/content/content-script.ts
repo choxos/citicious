@@ -84,8 +84,9 @@ function isRelevantPage(): boolean {
     'semanticscholar.org',
   ];
 
-  // Check if on a known academic domain
-  if (academicDomains.some((domain) => hostname.includes(domain))) {
+  // Check if on a known academic domain (exact host or subdomain, so that
+  // e.g. "nature.com.example.test" does not match)
+  if (academicDomains.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))) {
     return true;
   }
 
@@ -94,11 +95,15 @@ function isRelevantPage(): boolean {
     return true;
   }
 
-  // Check for academic meta tags
-  const hasCitationMeta = document.querySelector(
-    'meta[name^="citation_"], meta[name^="dc."], meta[property="og:type"][content*="article"]'
-  );
-  if (hasCitationMeta) {
+  // Check for scholarly citation meta tags. Generic Dublin Core or
+  // og:type=article tags are NOT enough: most news/blog pages carry those.
+  if (document.querySelector('meta[name^="citation_"]')) {
+    return true;
+  }
+  const dcIdentifier = document.querySelector(
+    'meta[name="dc.identifier" i]'
+  ) as HTMLMetaElement | null;
+  if (dcIdentifier?.content && /\b10\.\d{4,9}\//.test(dcIdentifier.content)) {
     return true;
   }
 
@@ -284,21 +289,25 @@ function handleCheckResults(results: { id: string; result: FullCheckResult }[]) 
     }
   }
 
-  // Notify service worker of results for sidebar
-  chrome.runtime.sendMessage({
-    type: 'UPDATE_PAGE_STATUS',
-    payload: {
-      url: window.location.href,
-      citations: Array.from(checkedCitations.values()).map((c) => ({
-        id: c.id,
-        doi: c.doi,
-        title: c.title,
-        context: c.context,
-        status: c.result?.status || 'skip',
-        isRetracted: c.result?.isRetracted || false,
-      })),
-    },
-  });
+  // Broadcast results so an open sidebar can live-update
+  chrome.runtime
+    .sendMessage({
+      type: 'UPDATE_PAGE_STATUS',
+      payload: {
+        url: window.location.href,
+        citations: Array.from(checkedCitations.values()).map((c) => ({
+          id: c.id,
+          doi: c.doi,
+          title: c.title,
+          context: c.context,
+          status: c.result?.status || 'skip',
+          isRetracted: c.result?.isRetracted || false,
+          details: c.result?.retractionDetails,
+          validation: c.result?.validation,
+        })),
+      },
+    })
+    .catch(() => {});
 }
 
 /**
@@ -319,9 +328,11 @@ function observePageChanges() {
             if (element.closest?.('.citicious-badge, .citicious-banner')) {
               continue;
             }
-            // Check if added element or its children contain DOI patterns
+            // Check if added element or its children contain DOI patterns.
+            // Test textContent against a real DOI prefix pattern; a bare
+            // "10." would fire on prices, versions, and timestamps.
             if (
-              element.innerHTML?.includes('10.') ||
+              /\b10\.\d{4,9}\//.test(element.textContent || '') ||
               element.querySelector?.('[data-doi], a[href*="doi.org"]')
             ) {
               shouldRescan = true;
@@ -378,8 +389,11 @@ function handleMessage(
     case 'RESCAN_PAGE':
       removeAllBadges();
       checkedCitations.clear();
-      scanPage();
-      sendResponse({ success: true });
+      // Respond once the scan (including API checks) has finished, so the
+      // popup can refresh its summary with complete results.
+      scanPage()
+        .then(() => sendResponse({ success: true }))
+        .catch(() => sendResponse({ success: false }));
       return true;
 
     case 'HIGHLIGHT_CITATION':

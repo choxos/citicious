@@ -12,7 +12,7 @@ export type CitationStatus =
 
 // Retraction details
 export interface RetractionDetails {
-  recordId: number;
+  recordId: string | number | null;
   title: string | null;
   journal: string | null;
   publisher: string | null;
@@ -87,6 +87,5 @@ export type MessageType =
   | 'CHECK_BATCH'
   | 'GET_PAGE_STATUS'
   | 'UPDATE_PAGE_STATUS'
-  | 'OPEN_SIDEBAR'
   | 'RESCAN_PAGE'
   | 'HIGHLIGHT_CITATION';

@@ -5,6 +5,7 @@ import {
   extractCurrentArticleDoi,
   findReferenceSection,
   extractReferenceDois,
+  isValidDoi,
 } from '../doi-extractor';
 
 beforeEach(() => {
@@ -31,6 +32,24 @@ describe('extractCurrentArticleDoi', () => {
     document.body.innerHTML = '<p>No identifiers here.</p>';
     expect(extractCurrentArticleDoi(document)).toBeNull();
   });
+
+  it('rejects a malformed data-doi value instead of extracting garbage', () => {
+    document.body.innerHTML = '<div data-doi="not-a-doi-at-all"></div>';
+    expect(extractCurrentArticleDoi(document)).toBeNull();
+  });
+});
+
+describe('isValidDoi', () => {
+  it('accepts well-formed DOIs including ones with parentheses', () => {
+    expect(isValidDoi('10.1038/s41586-020-2649-2')).toBe(true);
+    expect(isValidDoi('10.1016/s0140-6736(97)11096-0')).toBe(true);
+  });
+
+  it('rejects malformed strings', () => {
+    expect(isValidDoi('not-a-doi')).toBe(false);
+    expect(isValidDoi('10.12/short-prefix')).toBe(false);
+    expect(isValidDoi('10.1234/')).toBe(false);
+  });
 });
 
 describe('findReferenceSection', () => {
@@ -54,6 +73,13 @@ describe('findReferenceSection', () => {
   it('ignores unrelated sidebar headings', () => {
     document.body.innerHTML = '<aside><h3>References &amp; Citations</h3></aside>';
     expect(findReferenceSection(document)).toBeNull();
+  });
+
+  it('skips an empty jump-target anchor and finds the real list (PLOS layout)', () => {
+    document.body.innerHTML =
+      '<a id="references"></a><ol class="references"><li>Doe J. A study. <a href="https://doi.org/10.1234/abc">link</a></li></ol>';
+    const section = findReferenceSection(document);
+    expect(section?.tagName).toBe('OL');
   });
 });
 
@@ -93,6 +119,38 @@ describe('extractReferenceDois', () => {
     const section = findReferenceSection(document)!;
     const citations = extractReferenceDois(section);
     expect(citations.some((c) => c.pmid === '12345678')).toBe(true);
+  });
+
+  it('extracts PubMed IDs from pubmed.ncbi.nlm.nih.gov links', () => {
+    document.body.innerHTML =
+      '<ol class="references"><li>Kim H. Linked paper. <a href="https://pubmed.ncbi.nlm.nih.gov/87654321/">PubMed</a></li></ol>';
+    const section = findReferenceSection(document)!;
+    const citations = extractReferenceDois(section);
+    expect(citations.some((c) => c.pmid === '87654321')).toBe(true);
+  });
+
+  it('strips URL query strings and fragments from DOIs found in links', () => {
+    document.body.innerHTML =
+      '<ol class="references"><li><a href="https://doi.org/10.1234/abc?utm_source=x#section">link</a></li></ol>';
+    const section = findReferenceSection(document)!;
+    const citations = extractReferenceDois(section);
+    expect(citations[0].doi).toBe('10.1234/abc');
+  });
+
+  it('keeps balanced parentheses that are part of the DOI', () => {
+    document.body.innerHTML =
+      '<ol class="references"><li>Wakefield A. doi:10.1016/S0140-6736(97)11096-0</li></ol>';
+    const section = findReferenceSection(document)!;
+    const citations = extractReferenceDois(section);
+    expect(citations.map((c) => c.doi)).toContain('10.1016/s0140-6736(97)11096-0');
+  });
+
+  it('strips an unbalanced trailing parenthesis from a DOI in prose', () => {
+    document.body.innerHTML =
+      '<ol class="references"><li>See the study (doi:10.1234/abc123).</li></ol>';
+    const section = findReferenceSection(document)!;
+    const citations = extractReferenceDois(section);
+    expect(citations.map((c) => c.doi)).toContain('10.1234/abc123');
   });
 });
 

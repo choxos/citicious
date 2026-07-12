@@ -72,21 +72,44 @@ describe('checkCitation by DOI', () => {
     expect(result.isRetracted).toBe(false);
   });
 
-  it('detects retraction from CrossRef update-to', async () => {
+  it('detects retraction from CrossRef updated-by on the original article', async () => {
     installFetch({
       crossref: crossrefWork({
-        'update-to': [{ type: 'retraction', DOI: '10.1234/retraction-notice' }],
+        'updated-by': [
+          {
+            type: 'retraction',
+            label: 'Retraction',
+            DOI: '10.1234/retraction-notice',
+            source: 'retraction-watch',
+            'record-id': '17269',
+            updated: { 'date-time': '2010-02-02T00:00:00Z', timestamp: 1265068800000 },
+          },
+        ],
       }),
     });
     const result = await citiciousAPI.checkCitation({ doi: '10.1234/example' });
     expect(result.status).toBe('retracted');
     expect(result.isRetracted).toBe(true);
     expect(result.retractionDetails?.retractionNoticeUrl).toContain('10.1234/retraction-notice');
+    expect(result.retractionDetails?.source).toBe('retraction-watch');
+    expect(result.retractionDetails?.recordId).toBe('17269');
+    expect(result.retractionDetails?.retractionDate).toBe('2010-02-02T00:00:00Z');
+  });
+
+  it('does NOT flag the retraction notice itself (update-to only) as retracted', async () => {
+    installFetch({
+      crossref: crossrefWork({
+        'update-to': [{ type: 'retraction', DOI: '10.1234/original' }],
+      }),
+    });
+    const result = await citiciousAPI.checkCitation({ doi: '10.1234/retraction-notice' });
+    expect(result.status).toBe('verified');
+    expect(result.isRetracted).toBe(false);
   });
 
   it('detects expression of concern', async () => {
     installFetch({
-      crossref: crossrefWork({ 'update-to': [{ type: 'expression_of_concern' }] }),
+      crossref: crossrefWork({ 'updated-by': [{ type: 'expression_of_concern' }] }),
     });
     const result = await citiciousAPI.checkCitation({ doi: '10.1234/example' });
     expect(result.status).toBe('concern');
@@ -95,7 +118,7 @@ describe('checkCitation by DOI', () => {
 
   it('detects correction / erratum', async () => {
     installFetch({
-      crossref: crossrefWork({ 'update-to': [{ type: 'correction' }] }),
+      crossref: crossrefWork({ 'updated-by': [{ type: 'correction' }] }),
     });
     const result = await citiciousAPI.checkCitation({ doi: '10.1234/example' });
     expect(result.status).toBe('correction');
@@ -104,11 +127,76 @@ describe('checkCitation by DOI', () => {
   it('prefers the most severe signal when several updates exist', async () => {
     installFetch({
       crossref: crossrefWork({
-        'update-to': [{ type: 'correction' }, { type: 'retraction' }],
+        'updated-by': [{ type: 'correction' }, { type: 'retraction' }],
       }),
     });
     const result = await citiciousAPI.checkCitation({ doi: '10.1234/example' });
     expect(result.status).toBe('retracted');
+  });
+
+  it('clears a retraction superseded by a later reinstatement', async () => {
+    installFetch({
+      crossref: crossrefWork({
+        'updated-by': [
+          { type: 'retraction', updated: { timestamp: 1000 } },
+          { type: 'reinstatement', updated: { timestamp: 2000 } },
+        ],
+      }),
+    });
+    const result = await citiciousAPI.checkCitation({ doi: '10.1234/example' });
+    expect(result.status).toBe('verified');
+    expect(result.isRetracted).toBe(false);
+  });
+
+  it('keeps a retraction issued after an earlier reinstatement', async () => {
+    installFetch({
+      crossref: crossrefWork({
+        'updated-by': [
+          { type: 'reinstatement', updated: { timestamp: 1000 } },
+          { type: 'retraction', updated: { timestamp: 2000 } },
+        ],
+      }),
+    });
+    const result = await citiciousAPI.checkCitation({ doi: '10.1234/example' });
+    expect(result.status).toBe('retracted');
+  });
+
+  it('does not resurrect a superseded retraction via the relation fallback', async () => {
+    installFetch({
+      crossref: crossrefWork({
+        'updated-by': [
+          { type: 'retraction', updated: { timestamp: 1000 } },
+          { type: 'reinstatement', updated: { timestamp: 2000 } },
+        ],
+        relation: { 'is-retracted-by': [{ id: '10.1234/old-notice' }] },
+      }),
+    });
+    const result = await citiciousAPI.checkCitation({ doi: '10.1234/example' });
+    expect(result.isRetracted).toBe(false);
+  });
+
+  it('keeps an undated retraction when the reinstatement is also undated', async () => {
+    installFetch({
+      crossref: crossrefWork({
+        'updated-by': [{ type: 'retraction' }, { type: 'reinstatement' }],
+      }),
+    });
+    const result = await citiciousAPI.checkCitation({ doi: '10.1234/example' });
+    expect(result.status).toBe('retracted');
+  });
+
+  it('keeps a concern standing when only the retraction was reinstated', async () => {
+    installFetch({
+      crossref: crossrefWork({
+        'updated-by': [
+          { type: 'expression_of_concern', updated: { timestamp: 500 } },
+          { type: 'retraction', updated: { timestamp: 1000 } },
+          { type: 'reinstatement', updated: { timestamp: 2000 } },
+        ],
+      }),
+    });
+    const result = await citiciousAPI.checkCitation({ doi: '10.1234/example' });
+    expect(result.status).toBe('concern');
   });
 
   it('falls back to OpenAlex when CrossRef 404s', async () => {
