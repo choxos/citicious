@@ -271,22 +271,21 @@ function handleCheckResults(results: { id: string; result: FullCheckResult }[]) 
 
   // If no current article banner, show references banner if there are issues
   if (!currentArticleResult || currentArticleResult.status === 'verified' || currentArticleResult.status === 'skip') {
-    // Count problematic references
-    let retractedCount = 0;
-    let fakeCount = 0;
-    let concernCount = 0;
+    // Count problematic references per status so the banner can convey
+    // severity accurately
+    const counts = { retracted: 0, notFound: 0, mismatch: 0, concern: 0, correction: 0 };
 
     for (const [, checked] of checkedCitations) {
       if (checked.context !== 'reference') continue;
       const status = checked.result?.status;
-      if (status === 'retracted') retractedCount++;
-      else if (status === 'fake-likely' || status === 'fake-probably') fakeCount++;
-      else if (status === 'concern' || status === 'correction') concernCount++;
+      if (status === 'retracted') counts.retracted++;
+      else if (status === 'fake-likely') counts.notFound++;
+      else if (status === 'fake-probably') counts.mismatch++;
+      else if (status === 'concern') counts.concern++;
+      else if (status === 'correction') counts.correction++;
     }
 
-    if (retractedCount > 0 || fakeCount > 0 || concernCount > 0) {
-      injectReferencesBanner(retractedCount, fakeCount, concernCount);
-    }
+    injectReferencesBanner(counts);
   }
 
   // Broadcast results so an open sidebar can live-update

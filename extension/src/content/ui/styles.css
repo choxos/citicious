@@ -2,111 +2,262 @@
    Citicious Chrome Extension Styles
    =========================================== */
 
-/* Top Banner - Prominent warning for problematic articles */
+/* Top Banner - severity strip injected on problematic articles.
+   Injected into arbitrary publisher pages: everything is namespaced,
+   reset with all:initial, and marked !important to defend against
+   page CSS. Colors meet WCAG AA on both light and dark schemes. */
 .citicious-banner {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 999999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  height: 36px;
-  padding: 0 20px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  all: initial !important;
+  --citicious-bg: #B42318;
+  --citicious-fg: #FFFFFF;
+  --citicious-accent: #FECACA;
+  --citicious-chip: rgba(255, 255, 255, 0.14);
+  --citicious-action-bg: #FFFFFF;
+  --citicious-action-fg: #7A271A;
+  --citicious-focus: #FFFFFF;
+
+  position: fixed !important;
+  inset: 0 0 auto 0 !important;
+  z-index: 2147483647 !important;
+  display: block !important;
+  width: auto !important;
+  min-width: 0 !important;
+  height: auto !important;
+  margin: 0 !important;
+  padding: 10px 16px !important;
+  border: 0 !important;
+  border-top: 4px solid var(--citicious-accent) !important;
+  box-sizing: border-box !important;
+  background: var(--citicious-bg) !important;
+  color: var(--citicious-fg) !important;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28) !important;
+  font: 400 14px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    Roboto, Helvetica, Arial, sans-serif !important;
+  direction: ltr !important;
+  text-align: left !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  isolation: isolate !important;
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+  transition:
+    transform 160ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 160ms linear !important;
+}
+
+/* Red: retracted article or unregistered DOI */
+.citicious-banner.citicious-banner--retracted,
+.citicious-banner.citicious-banner--fake-likely {
+  --citicious-bg: #B42318;
+  --citicious-fg: #FFFFFF;
+  --citicious-accent: #FECACA;
+  --citicious-action-bg: #FFFFFF;
+  --citicious-action-fg: #7A271A;
+}
+
+/* Amber: expression of concern or metadata mismatch */
+.citicious-banner.citicious-banner--concern,
+.citicious-banner.citicious-banner--fake-probably {
+  --citicious-bg: #9A3412;
+  --citicious-fg: #FFFFFF;
+  --citicious-accent: #FED7AA;
+  --citicious-action-bg: #FFFFFF;
+  --citicious-action-fg: #7C2D12;
+}
+
+/* Yellow: correction */
+.citicious-banner.citicious-banner--correction {
+  --citicious-bg: #FACC15;
+  --citicious-fg: #422006;
+  --citicious-accent: #854D0E;
+  --citicious-chip: rgba(66, 32, 6, 0.1);
+  --citicious-action-bg: #422006;
+  --citicious-action-fg: #FEF9C3;
+  --citicious-focus: #422006;
+}
+
+/* Reset every inner element against page CSS, then restyle explicitly */
+.citicious-banner :where(
+  .citicious-banner__inner,
+  .citicious-banner__mark,
+  .citicious-banner__body,
+  .citicious-banner__heading,
+  .citicious-banner__brand,
+  .citicious-banner__title,
+  .citicious-banner__summary,
+  .citicious-banner__details,
+  .citicious-banner__meta,
+  .citicious-banner__meta-item,
+  .citicious-banner__meta-label,
+  .citicious-banner__meta-value,
+  .citicious-banner__actions,
+  .citicious-banner__link,
+  .citicious-banner__source,
+  .citicious-banner__close
+) {
+  all: initial !important;
+  box-sizing: border-box !important;
+  color: inherit !important;
+  font: inherit !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+}
+
+.citicious-banner .citicious-banner__inner {
+  display: grid !important;
+  grid-template-columns: 32px minmax(0, 1fr) 44px !important;
+  align-items: start !important;
+  gap: 12px !important;
+  width: 100% !important;
+  max-width: 1120px !important;
+  margin: 0 auto !important;
+}
+
+.citicious-banner .citicious-banner__mark {
+  display: grid !important;
+  place-items: center !important;
+  width: 32px !important;
+  height: 32px !important;
+  border: 1px solid currentColor !important;
+  border-radius: 999px !important;
+  background: var(--citicious-chip) !important;
+  font-size: 20px !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+}
+
+.citicious-banner .citicious-banner__body {
+  display: block !important;
+  min-width: 0 !important;
+}
+
+.citicious-banner .citicious-banner__heading {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 6px 10px !important;
+}
+
+.citicious-banner .citicious-banner__brand {
+  display: inline-flex !important;
+  padding: 2px 7px !important;
+  border: 1px solid currentColor !important;
+  border-radius: 999px !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  line-height: 1.4 !important;
+  white-space: nowrap !important;
+}
+
+.citicious-banner .citicious-banner__title {
+  display: block !important;
+  min-width: 0 !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  line-height: 1.25 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+.citicious-banner .citicious-banner__summary {
+  display: block !important;
+  margin: 3px 0 0 !important;
   font-size: 14px !important;
-  line-height: 1;
-  white-space: nowrap;
-  box-sizing: border-box;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  transition: transform 0.3s ease, opacity 0.3s ease;
+  line-height: 1.45 !important;
+  white-space: normal !important;
 }
 
-.citicious-banner--hidden {
-  transform: translateY(-100%);
-  opacity: 0;
+.citicious-banner .citicious-banner__details {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  flex-wrap: wrap !important;
+  gap: 8px 16px !important;
+  margin-top: 8px !important;
 }
 
-/* Banner - Retracted (Red) */
-.citicious-banner--retracted {
-  background: linear-gradient(135deg, #FEE2E2 0%, #FECACA 100%);
-  border-bottom: 3px solid #DC2626;
-  color: #991B1B;
+.citicious-banner .citicious-banner__meta,
+.citicious-banner .citicious-banner__actions {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 6px 10px !important;
+  margin: 0 !important;
 }
 
-/* Banner - Concern (Orange) */
-.citicious-banner--concern {
-  background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
-  border-bottom: 3px solid #D97706;
-  color: #92400E;
+.citicious-banner .citicious-banner__meta-item {
+  display: flex !important;
+  gap: 5px !important;
+  padding: 3px 8px !important;
+  border-radius: 5px !important;
+  background: var(--citicious-chip) !important;
+  font-size: 13px !important;
 }
 
-/* Banner - Correction (Yellow) */
-.citicious-banner--correction {
-  background: linear-gradient(135deg, #FEF9C3 0%, #FEF08A 100%);
-  border-bottom: 3px solid #CA8A04;
-  color: #854D0E;
+.citicious-banner .citicious-banner__meta-label {
+  font-weight: 700 !important;
 }
 
-/* Banner - Fake (likely) - High confidence (Red) */
-.citicious-banner--fake-likely {
-  background: linear-gradient(135deg, #FEE2E2 0%, #FECACA 100%);
-  border-bottom: 3px solid #DC2626;
-  color: #991B1B;
+.citicious-banner .citicious-banner__meta-value {
+  margin: 0 !important;
 }
 
-/* Banner - Fake (probably) - Medium confidence (Orange) */
-.citicious-banner--fake-probably {
-  background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
-  border-bottom: 3px solid #D97706;
-  color: #92400E;
+.citicious-banner .citicious-banner__link {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 36px !important;
+  padding: 7px 11px !important;
+  border: 1px solid transparent !important;
+  border-radius: 6px !important;
+  background: var(--citicious-action-bg) !important;
+  color: var(--citicious-action-fg) !important;
+  font-weight: 700 !important;
+  line-height: 1.3 !important;
+  text-decoration: none !important;
+  cursor: pointer !important;
 }
 
-.citicious-banner__icon {
-  font-size: 20px;
-  flex-shrink: 0;
+.citicious-banner .citicious-banner__link:hover {
+  text-decoration: underline !important;
+  text-underline-offset: 2px !important;
 }
 
-.citicious-banner__text {
-  font-size: 14px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+.citicious-banner .citicious-banner__source {
+  display: inline !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  white-space: normal !important;
 }
 
-.citicious-banner__detail {
-  font-size: 13px;
-  opacity: 0.9;
+.citicious-banner .citicious-banner__close {
+  appearance: none !important;
+  display: grid !important;
+  place-items: center !important;
+  width: 44px !important;
+  height: 44px !important;
+  padding: 0 !important;
+  border: 1px solid currentColor !important;
+  border-radius: 8px !important;
+  background: var(--citicious-chip) !important;
+  color: inherit !important;
+  font-size: 26px !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
 }
 
-.citicious-banner__link {
-  color: inherit;
-  font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  margin-left: 8px;
+.citicious-banner :is(
+  .citicious-banner__link,
+  .citicious-banner__close
+):focus-visible {
+  outline: 3px solid var(--citicious-focus) !important;
+  outline-offset: 2px !important;
 }
 
-.citicious-banner__link:hover {
-  text-decoration-thickness: 2px;
-}
-
-.citicious-banner__close {
-  background: none;
-  border: none;
-  font-size: 24px;
-  cursor: pointer;
-  padding: 0 8px;
-  opacity: 0.6;
-  color: inherit;
-  margin-left: 16px;
-  transition: opacity 0.2s ease;
-}
-
-.citicious-banner__close:hover {
-  opacity: 1;
+.citicious-banner.citicious-banner--hidden {
+  pointer-events: none !important;
+  opacity: 0 !important;
+  transform: translateY(-8px) !important;
 }
 
 /* Inline Badges - Compact styling */
@@ -118,7 +269,7 @@
   margin: 0 2px;
   border-radius: 3px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
   line-height: 1.2;
   vertical-align: baseline;
@@ -145,56 +296,56 @@
 /* Verified - Green */
 .citicious-badge--verified {
   background: #DCFCE7;
-  color: #16A34A;
+  color: #15803D;
   border: 1px solid #BBF7D0;
 }
 
 /* Unverified - Neutral blue (registered DOI, not in scholarly DBs) */
 .citicious-badge--unverified {
   background: #DBEAFE;
-  color: #2563EB;
+  color: #1D4ED8;
   border: 1px solid #BFDBFE;
 }
 
 /* Retracted - Red */
 .citicious-badge--retracted {
   background: #FEE2E2;
-  color: #DC2626;
+  color: #B91C1C;
   border: 1px solid #FECACA;
 }
 
 /* Concern - Orange */
 .citicious-badge--concern {
   background: #FEF3C7;
-  color: #D97706;
+  color: #B45309;
   border: 1px solid #FDE68A;
 }
 
 /* Correction - Yellow/Amber */
 .citicious-badge--correction {
   background: #FEF9C3;
-  color: #CA8A04;
+  color: #A16207;
   border: 1px solid #FEF08A;
 }
 
-/* FAKE (likely) - High confidence, Red */
+/* DOI not found - High confidence, Red */
 .citicious-badge--fake-likely {
   background: #FEE2E2;
-  color: #DC2626;
+  color: #B91C1C;
   border: 1px solid #FECACA;
 }
 
-/* FAKE (probably) - Medium confidence, Orange */
+/* Title mismatch - Medium confidence, Orange */
 .citicious-badge--fake-probably {
   background: #FEF3C7;
-  color: #D97706;
+  color: #B45309;
   border: 1px solid #FDE68A;
 }
 
 /* Checking - Gray with animation */
 .citicious-badge--checking {
   background: #F3F4F6;
-  color: #6B7280;
+  color: #4B5563;
   border: 1px solid #E5E7EB;
 }
 
@@ -245,24 +396,32 @@
 
 /* Dark mode support */
 @media (prefers-color-scheme: dark) {
-  .citicious-banner--retracted,
-  .citicious-banner--fake-likely {
-    background: linear-gradient(135deg, #450A0A 0%, #7F1D1D 100%);
-    border-bottom-color: #EF4444;
-    color: #FCA5A5;
+  .citicious-banner.citicious-banner--retracted,
+  .citicious-banner.citicious-banner--fake-likely {
+    --citicious-bg: #7F1D1D;
+    --citicious-fg: #FEF2F2;
+    --citicious-accent: #FCA5A5;
+    --citicious-action-bg: #FEF2F2;
+    --citicious-action-fg: #7F1D1D;
   }
 
-  .citicious-banner--concern,
-  .citicious-banner--fake-probably {
-    background: linear-gradient(135deg, #451A03 0%, #78350F 100%);
-    border-bottom-color: #F59E0B;
-    color: #FCD34D;
+  .citicious-banner.citicious-banner--concern,
+  .citicious-banner.citicious-banner--fake-probably {
+    --citicious-bg: #78350F;
+    --citicious-fg: #FFFBEB;
+    --citicious-accent: #FCD34D;
+    --citicious-action-bg: #FFFBEB;
+    --citicious-action-fg: #78350F;
   }
 
-  .citicious-banner--correction {
-    background: linear-gradient(135deg, #422006 0%, #713F12 100%);
-    border-bottom-color: #EAB308;
-    color: #FDE047;
+  .citicious-banner.citicious-banner--correction {
+    --citicious-bg: #713F12;
+    --citicious-fg: #FEF9C3;
+    --citicious-accent: #FACC15;
+    --citicious-chip: rgba(255, 255, 255, 0.14);
+    --citicious-action-bg: #FEF9C3;
+    --citicious-action-fg: #713F12;
+    --citicious-focus: #FEF9C3;
   }
 
   .citicious-badge--verified {
@@ -301,6 +460,46 @@
     background: #1F2937;
     color: #9CA3AF;
     border-color: #374151;
+  }
+}
+
+/* Narrow viewports: stack the details column */
+@media (max-width: 520px) {
+  .citicious-banner {
+    padding: 10px !important;
+  }
+
+  .citicious-banner .citicious-banner__inner {
+    grid-template-columns: 28px minmax(0, 1fr) 44px !important;
+    gap: 10px !important;
+  }
+
+  .citicious-banner .citicious-banner__mark {
+    width: 28px !important;
+    height: 28px !important;
+    font-size: 18px !important;
+  }
+
+  .citicious-banner .citicious-banner__details {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    justify-items: start !important;
+  }
+}
+
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .citicious-banner,
+  .citicious-badge {
+    transition: none !important;
+  }
+
+  .citicious-banner.citicious-banner--hidden {
+    transform: none !important;
+  }
+
+  .citicious-badge--checking .citicious-badge__icon {
+    animation: none !important;
   }
 }
 

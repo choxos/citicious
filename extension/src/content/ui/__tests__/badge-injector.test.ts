@@ -29,6 +29,25 @@ beforeEach(() => {
   removeAllBadges();
 });
 
+// jsdom has no layout, so offsetHeight is always 0; give banners a height so
+// the body push-down math is observable.
+function withBannerHeight(fn: () => void): void {
+  const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+    configurable: true,
+    get() {
+      return 48;
+    },
+  });
+  try {
+    fn();
+  } finally {
+    if (original) {
+      Object.defineProperty(HTMLElement.prototype, 'offsetHeight', original);
+    }
+  }
+}
+
 describe('injectTopBanner', () => {
   it('inserts a banner as the first body child and pushes content down', () => {
     document.body.innerHTML = '<main>content</main>';
@@ -38,31 +57,77 @@ describe('injectTopBanner', () => {
     expect(document.body.style.marginTop).not.toBe('');
   });
 
+  it('renders an accessible alert with brand, title, notice link, and attribution', () => {
+    const banner = injectTopBanner('retracted', details())!;
+    expect(banner.getAttribute('role')).toBe('alert');
+    expect(banner.querySelector('.citicious-banner__brand')?.textContent).toBe('Citicious');
+    expect(banner.querySelector('.citicious-banner__title')?.textContent).toBe('Retracted article');
+    const link = banner.querySelector('.citicious-banner__link') as HTMLAnchorElement;
+    expect(link.href).toContain('doi.org/10.1234/notice');
+    expect(link.rel).toContain('noopener');
+    expect(banner.querySelector('.citicious-banner__source')?.textContent).toContain('Retraction Watch');
+    expect(banner.querySelector('.citicious-banner__close')?.getAttribute('aria-label')).toBeTruthy();
+  });
+
+  it('renders no link for a non-http notice URL', () => {
+    const banner = injectTopBanner(
+      'retracted',
+      details({ retractionNoticeUrl: 'javascript:alert(1)' })
+    )!;
+    expect(banner.querySelector('.citicious-banner__link')).toBeNull();
+  });
+
   it('injects nothing for verified status', () => {
     expect(injectTopBanner('verified')).toBeNull();
     expect(document.getElementById('citicious-top-banner')).toBeNull();
   });
 
   it('restores the site-defined body margin when dismissed', () => {
-    document.body.style.marginTop = '17px';
-    const banner = injectTopBanner('retracted', details())!;
-    expect(document.body.style.marginTop).not.toBe('17px');
-    (banner.querySelector('.citicious-banner__close') as HTMLButtonElement).click();
-    expect(document.body.style.marginTop).toBe('17px');
+    withBannerHeight(() => {
+      document.body.style.marginTop = '17px';
+      const banner = injectTopBanner('retracted', details())!;
+      expect(document.body.style.marginTop).toBe('65px');
+      (banner.querySelector('.citicious-banner__close') as HTMLButtonElement).click();
+      expect(document.body.style.marginTop).toBe('17px');
+    });
   });
 });
 
 describe('injectReferencesBanner', () => {
   it('restores the site-defined body margin when dismissed', () => {
-    document.body.style.marginTop = '9px';
-    const banner = injectReferencesBanner(1, 2, 0)!;
-    expect(document.body.style.marginTop).not.toBe('9px');
-    (banner.querySelector('.citicious-banner__close') as HTMLButtonElement).click();
-    expect(document.body.style.marginTop).toBe('9px');
+    withBannerHeight(() => {
+      document.body.style.marginTop = '9px';
+      const banner = injectReferencesBanner({
+        retracted: 1,
+        notFound: 2,
+        mismatch: 0,
+        concern: 0,
+        correction: 0,
+      })!;
+      expect(document.body.style.marginTop).toBe('57px');
+      (banner.querySelector('.citicious-banner__close') as HTMLButtonElement).click();
+      expect(document.body.style.marginTop).toBe('9px');
+    });
+  });
+
+  it('summarizes per-status counts and styles by highest severity', () => {
+    const banner = injectReferencesBanner({
+      retracted: 2,
+      notFound: 0,
+      mismatch: 1,
+      concern: 0,
+      correction: 0,
+    })!;
+    expect(banner.className).toContain('citicious-banner--retracted');
+    const summary = banner.querySelector('.citicious-banner__summary')?.textContent || '';
+    expect(summary).toContain('2 retracted');
+    expect(summary).toContain('1 with mismatched details');
   });
 
   it('returns null when there is nothing to report', () => {
-    expect(injectReferencesBanner(0, 0, 0)).toBeNull();
+    expect(
+      injectReferencesBanner({ retracted: 0, notFound: 0, mismatch: 0, concern: 0, correction: 0 })
+    ).toBeNull();
   });
 });
 
