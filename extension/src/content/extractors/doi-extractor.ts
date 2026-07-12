@@ -43,6 +43,22 @@ function stripUnbalancedTrailing(doi: string, open: string, close: string): stri
 }
 
 /**
+ * Extract a DOI candidate from a URL, tolerating percent-encoding. Springer
+ * (among others) encodes the DOI slash in doi.org hrefs (10.1001%2Fjamaoncol...),
+ * which a literal-slash regex never matches.
+ */
+function doiFromUrl(url: string): string | null {
+  let candidate = url;
+  try {
+    candidate = decodeURIComponent(url);
+  } catch {
+    // Malformed escape sequence: fall back to the raw URL
+  }
+  const match = candidate.match(/10\.\d{4,9}\/[^\s"'<>]+/);
+  return match ? match[0] : null;
+}
+
+/**
  * Normalize DOI (lowercase, strip a doi.org URL prefix, URL query/fragment
  * leftovers, and trailing sentence punctuation that is never part of the DOI)
  */
@@ -99,9 +115,9 @@ export function extractCurrentArticleDoi(document: Document): ExtractedCitation 
   // Method 2: Check canonical link
   const canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement;
   if (canonical?.href) {
-    const match = canonical.href.match(/10\.\d{4,9}\/[^\s"'<>]+/);
-    if (match) {
-      const citation = currentArticleCitation(match[0], document);
+    const candidate = doiFromUrl(canonical.href);
+    if (candidate) {
+      const citation = currentArticleCitation(candidate, document);
       if (citation) return citation;
     }
   }
@@ -139,9 +155,9 @@ export function extractCurrentArticleDoi(document: Document): ExtractedCitation 
   }
 
   // Method 5: Check URL
-  const urlMatch = window.location.href.match(/10\.\d{4,9}\/[^\s"'<>]+/);
-  if (urlMatch) {
-    const citation = currentArticleCitation(urlMatch[0], document);
+  const urlCandidate = doiFromUrl(window.location.href);
+  if (urlCandidate) {
+    const citation = currentArticleCitation(urlCandidate, document);
     if (citation) return citation;
   }
 
@@ -160,6 +176,7 @@ export function findReferenceSection(document: Document): HTMLElement | null {
     '#references',
     '#bibliography',
     '#reference-section',
+    '#preview-section-references', // ScienceDirect abstract preview
     '#ref-list',
     '#bib',
     '#Bib1', // Springer/Nature
@@ -206,7 +223,58 @@ export function findReferenceSection(document: Document): HTMLElement | null {
     }
   }
 
-  return null;
+  return findReferenceListByContent(document);
+}
+
+/**
+ * Publisher-agnostic fallback for sites whose markup matches none of the known
+ * selectors or headings: find the tightest list-like container that holds
+ * several identifier-bearing reference entries. Sidebars and "related article"
+ * widgets are excluded, and at least MIN_REFERENCE_ITEMS entries are required,
+ * so ordinary prose that happens to mention a DOI never qualifies.
+ */
+function findReferenceListByContent(document: Document): HTMLElement | null {
+  const MIN_REFERENCE_ITEMS = 3;
+  const EXCLUDED_ANCESTORS = 'aside, nav, header, footer, [role="complementary"], [role="navigation"]';
+  const EXCLUDED_HINT = /recommend|related|sidebar|promo|advert|cited-by|citedby|metrics|toc|menu/i;
+
+  const root = (document.querySelector('main, article') || document.body) as HTMLElement | null;
+  if (!root) return null;
+
+  let best: { element: HTMLElement; items: number; size: number } | null = null;
+
+  for (const candidate of root.querySelectorAll<HTMLElement>('ol, ul, section, div, dl')) {
+    if (candidate.closest(EXCLUDED_ANCESTORS)) continue;
+    const hint = `${candidate.id} ${candidate.className}`;
+    if (typeof candidate.className === 'string' && EXCLUDED_HINT.test(hint)) continue;
+
+    const entries = candidate.querySelectorAll<HTMLElement>('li, dd, p, div, tr');
+    let items = 0;
+    for (const entry of entries) {
+      const text = entry.textContent || '';
+      const hasIdentifier =
+        /\b10\.\d{4,9}\//.test(text) ||
+        PMID_REGEX.test(text) ||
+        entry.querySelector('a[href*="doi.org"], a[href*="pubmed.ncbi.nlm.nih.gov"]') !== null;
+      PMID_REGEX.lastIndex = 0;
+      // Count only the entries that directly hold an identifier, not their
+      // ancestors, so a wrapper does not inherit its children's score.
+      if (hasIdentifier && !entry.querySelector('li, dd, tr')) {
+        items++;
+      }
+    }
+
+    if (items < MIN_REFERENCE_ITEMS) continue;
+
+    const size = (candidate.textContent || '').length;
+    // Most identifier-bearing entries wins; ties go to the tightest container,
+    // which keeps the result off <main> and on the actual list
+    if (!best || items > best.items || (items === best.items && size < best.size)) {
+      best = { element: candidate, items, size };
+    }
+  }
+
+  return best?.element || null;
 }
 
 /**
@@ -257,13 +325,17 @@ export function extractReferenceDois(
   // Method 1: Find links to doi.org
   const doiLinks = referenceSection.querySelectorAll('a[href*="doi.org"]');
   for (const link of doiLinks) {
-    const href = (link as HTMLAnchorElement).href;
-    const match = href.match(/10\.\d{4,9}\/[^\s"'<>]+/);
-    if (match) {
-      const doi = normalizeDoi(match[0]);
+    const candidate = doiFromUrl((link as HTMLAnchorElement).href);
+    if (candidate) {
+      const doi = normalizeDoi(candidate);
       if (isValidDoi(doi) && !seenDois.has(doi)) {
         seenDois.add(doi);
-        const refElement = link.closest('li, p, div, tr') as HTMLElement || link as HTMLElement;
+        // Prefer the whole list item so highlights and badges attach to the
+        // full reference, not just the publisher's link row inside it
+        const refElement =
+          (link.closest('li') as HTMLElement) ||
+          (link.closest('p, div, tr') as HTMLElement) ||
+          (link as HTMLElement);
         citations.push({
           id: generateId(),
           doi,
@@ -291,7 +363,8 @@ export function extractReferenceDois(
       const doi = normalizeDoi(match[1]);
       if (isValidDoi(doi) && !seenDois.has(doi)) {
         seenDois.add(doi);
-        const parentElement = node.parentElement?.closest('li, p, div, tr') as HTMLElement;
+        const parentElement = (node.parentElement?.closest('li') ||
+          node.parentElement?.closest('p, div, tr')) as HTMLElement;
         if (parentElement) {
           citations.push({
             id: generateId(),
@@ -349,7 +422,10 @@ export function extractReferenceDois(
   for (const link of pubmedLinks) {
     const match = (link as HTMLAnchorElement).href.match(PMID_URL_REGEX);
     if (match) {
-      const refElement = (link.closest('li, p, div, tr') as HTMLElement) || (link as HTMLElement);
+      const refElement =
+        (link.closest('li') as HTMLElement) ||
+        (link.closest('p, div, tr') as HTMLElement) ||
+        (link as HTMLElement);
       addPmid(match[1], refElement);
     }
   }

@@ -302,12 +302,17 @@ export interface ReferenceIssueCounts {
   correction: number;
 }
 
+export type ReferenceIssueCategory = keyof ReferenceIssueCounts;
+
 /**
  * Inject a compact summary bar for references with issues: a neutral
  * single-row strip whose per-severity colored chips show what was found
  * and how many, with an accent stripe in the highest severity color.
  */
-export function injectReferencesBanner(counts: ReferenceIssueCounts): HTMLElement | null {
+export function injectReferencesBanner(
+  counts: ReferenceIssueCounts,
+  onChipClick?: (category: ReferenceIssueCategory) => void
+): HTMLElement | null {
   const total =
     counts.retracted + counts.notFound + counts.mismatch + counts.concern + counts.correction;
   if (total === 0) {
@@ -325,32 +330,36 @@ export function injectReferencesBanner(counts: ReferenceIssueCounts): HTMLElemen
     severity = 'concern';
   }
 
-  const chips: { tone: 'red' | 'amber' | 'yellow'; text: string }[] = [];
+  const chips: { tone: 'red' | 'amber' | 'yellow'; text: string; category: ReferenceIssueCategory }[] = [];
   if (counts.retracted > 0) {
-    chips.push({ tone: 'red', text: `${counts.retracted} retracted` });
+    chips.push({ tone: 'red', text: `${counts.retracted} retracted`, category: 'retracted' });
   }
   if (counts.notFound > 0) {
     chips.push({
       tone: 'red',
       text: `${counts.notFound} DOI${counts.notFound > 1 ? 's' : ''} not found`,
+      category: 'notFound',
     });
   }
   if (counts.mismatch > 0) {
     chips.push({
       tone: 'amber',
       text: `${counts.mismatch} title mismatch${counts.mismatch > 1 ? 'es' : ''}`,
+      category: 'mismatch',
     });
   }
   if (counts.concern > 0) {
     chips.push({
       tone: 'amber',
       text: `${counts.concern} concern${counts.concern > 1 ? 's' : ''}`,
+      category: 'concern',
     });
   }
   if (counts.correction > 0) {
     chips.push({
       tone: 'yellow',
       text: `${counts.correction} correction${counts.correction > 1 ? 's' : ''}`,
+      category: 'correction',
     });
   }
 
@@ -381,9 +390,15 @@ export function injectReferencesBanner(counts: ReferenceIssueCounts): HTMLElemen
   const chipRow = document.createElement('span');
   chipRow.className = 'citicious-banner__chips';
   for (const chip of chips) {
-    const el = document.createElement('span');
+    // Clickable chips jump to the first flagged reference of that category
+    const el = document.createElement(onChipClick ? 'button' : 'span');
     el.className = `citicious-banner__chip citicious-banner__chip--${chip.tone}`;
     el.textContent = chip.text;
+    if (onChipClick) {
+      (el as HTMLButtonElement).type = 'button';
+      el.setAttribute('aria-label', `Jump to the first reference: ${chip.text}`);
+      el.addEventListener('click', () => onChipClick(chip.category));
+    }
     chipRow.appendChild(el);
   }
   inner.appendChild(chipRow);

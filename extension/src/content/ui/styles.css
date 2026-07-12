@@ -268,7 +268,7 @@
    Frosted-glass background so content scrolling underneath stays softly
    visible instead of being blocked by an opaque strip. */
 .citicious-banner.citicious-banner--summary {
-  --citicious-bg: rgba(255, 255, 255, 0.5);
+  --citicious-bg: rgba(255, 255, 255, 0.35);
   --citicious-fg: #1F2937;
   --citicious-chip: rgba(31, 41, 55, 0.06);
   --citicious-focus: #1D4ED8;
@@ -355,6 +355,30 @@
   background: #FEF9C3 !important;
   border-color: #FEF08A !important;
   color: #A16207 !important;
+}
+
+/* Chips rendered as buttons navigate to the first reference of their
+   category */
+.citicious-banner button.citicious-banner__chip {
+  cursor: pointer !important;
+}
+
+.citicious-banner button.citicious-banner__chip:hover {
+  text-decoration: underline !important;
+  text-underline-offset: 2px !important;
+  filter: brightness(0.96) !important;
+}
+
+.citicious-banner button.citicious-banner__chip:focus-visible {
+  outline: 3px solid var(--citicious-focus) !important;
+  outline-offset: 2px !important;
+}
+
+/* Flash applied to a reference row after chip or sidebar navigation */
+.citicious-highlight {
+  outline: 3px solid #3B82F6 !important;
+  outline-offset: 3px !important;
+  border-radius: 2px !important;
 }
 
 /* Close pinned to the right edge so the summary content can center */
@@ -542,7 +566,7 @@
   }
 
   .citicious-banner.citicious-banner--summary {
-    --citicious-bg: rgba(17, 24, 39, 0.45);
+    --citicious-bg: rgba(17, 24, 39, 0.32);
     --citicious-fg: #F3F4F6;
     --citicious-chip: rgba(255, 255, 255, 0.1);
     --citicious-focus: #93C5FD;

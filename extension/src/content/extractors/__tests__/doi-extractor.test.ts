@@ -81,6 +81,37 @@ describe('findReferenceSection', () => {
     const section = findReferenceSection(document);
     expect(section?.tagName).toBe('OL');
   });
+
+  it('falls back to the DOI-bearing list when no known selector or heading matches', () => {
+    document.body.innerHTML = `
+      <main>
+        <div class="bib-wrapper">
+          <ol class="publisher-specific-list">
+            <li>Doe J. First. <a href="https://doi.org/10.1234/one">link</a></li>
+            <li>Roe J. Second. doi:10.1234/two</li>
+            <li>Poe J. Third. doi:10.1234/three</li>
+          </ol>
+        </div>
+      </main>`;
+    const section = findReferenceSection(document);
+    expect(section?.tagName).toBe('OL');
+    expect(extractReferenceDois(section!)).toHaveLength(3);
+  });
+
+  it('ignores a related-articles sidebar in the content fallback', () => {
+    document.body.innerHTML = `
+      <main>
+        <aside class="recommended">
+          <ul>
+            <li><a href="https://doi.org/10.1234/aside-one">a</a></li>
+            <li><a href="https://doi.org/10.1234/aside-two">b</a></li>
+            <li><a href="https://doi.org/10.1234/aside-three">c</a></li>
+          </ul>
+        </aside>
+        <p>Prose that mentions doi:10.1234/inline once.</p>
+      </main>`;
+    expect(findReferenceSection(document)).toBeNull();
+  });
 });
 
 describe('extractReferenceDois', () => {
@@ -127,6 +158,14 @@ describe('extractReferenceDois', () => {
     const section = findReferenceSection(document)!;
     const citations = extractReferenceDois(section);
     expect(citations.some((c) => c.pmid === '87654321')).toBe(true);
+  });
+
+  it('extracts DOIs from percent-encoded doi.org links (Springer style)', () => {
+    document.body.innerHTML =
+      '<ol class="references"><li>Fitzmaurice C, et al. Global cancer burden. <a href="https://doi.org/10.1001%2Fjamaoncol.2016.5688">Article</a></li></ol>';
+    const section = findReferenceSection(document)!;
+    const citations = extractReferenceDois(section);
+    expect(citations.map((c) => c.doi)).toContain('10.1001/jamaoncol.2016.5688');
   });
 
   it('strips URL query strings and fragments from DOIs found in links', () => {

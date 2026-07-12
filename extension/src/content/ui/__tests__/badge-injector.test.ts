@@ -135,6 +135,30 @@ describe('injectReferencesBanner', () => {
       injectReferencesBanner({ retracted: 0, notFound: 0, mismatch: 0, concern: 0, correction: 0 })
     ).toBeNull();
   });
+
+  it('renders chips as buttons that report their category when clicked', () => {
+    const clicked: string[] = [];
+    const banner = injectReferencesBanner(
+      { retracted: 1, notFound: 0, mismatch: 0, concern: 0, correction: 2 },
+      (category) => clicked.push(category)
+    )!;
+    const chips = [...banner.querySelectorAll('.citicious-banner__chip')];
+    expect(chips.every((c) => c.tagName === 'BUTTON')).toBe(true);
+    (chips[0] as HTMLButtonElement).click();
+    (chips[1] as HTMLButtonElement).click();
+    expect(clicked).toEqual(['retracted', 'correction']);
+  });
+
+  it('renders chips as plain spans without a click handler', () => {
+    const banner = injectReferencesBanner({
+      retracted: 1,
+      notFound: 0,
+      mismatch: 0,
+      concern: 0,
+      correction: 0,
+    })!;
+    expect(banner.querySelector('.citicious-banner__chip')?.tagName).toBe('SPAN');
+  });
 });
 
 describe('injectBadge tooltips', () => {

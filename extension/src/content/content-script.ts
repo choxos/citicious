@@ -11,11 +11,44 @@ import {
   updateBadge,
   removeAllBadges,
 } from './ui/badge-injector';
+import type { ReferenceIssueCategory } from './ui/badge-injector';
 import type {
   ExtractedCitation,
   CheckedCitation,
   FullCheckResult,
+  CitationStatus,
 } from '../shared/types';
+
+// Maps summary-bar chip categories to citation statuses for chip navigation
+const CATEGORY_STATUS: Record<ReferenceIssueCategory, CitationStatus> = {
+  retracted: 'retracted',
+  notFound: 'fake-likely',
+  mismatch: 'fake-probably',
+  concern: 'concern',
+  correction: 'correction',
+};
+
+/**
+ * Scroll to the first flagged reference of the given category and flash it.
+ */
+function jumpToFirstReference(category: ReferenceIssueCategory): void {
+  const status = CATEGORY_STATUS[category];
+  const candidates = Array.from(checkedCitations.values()).filter(
+    (c) => c.context === 'reference' && c.result?.status === status && c.element.isConnected
+  );
+  if (candidates.length === 0) return;
+
+  // Earliest element in document order
+  const first = candidates.reduce((a, b) =>
+    a.element.compareDocumentPosition(b.element) & Node.DOCUMENT_POSITION_PRECEDING ? b : a
+  );
+
+  first.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  first.element.classList.add('citicious-highlight');
+  setTimeout(() => {
+    first.element.classList.remove('citicious-highlight');
+  }, 2000);
+}
 
 // Store checked citations
 const checkedCitations: Map<string, CheckedCitation> = new Map();
@@ -285,7 +318,7 @@ function handleCheckResults(results: { id: string; result: FullCheckResult }[]) 
       else if (status === 'correction') counts.correction++;
     }
 
-    injectReferencesBanner(counts);
+    injectReferencesBanner(counts, jumpToFirstReference);
   }
 
   // Broadcast results so an open sidebar can live-update
