@@ -268,15 +268,15 @@
    Frosted-glass background so content scrolling underneath stays softly
    visible instead of being blocked by an opaque strip. */
 .citicious-banner.citicious-banner--summary {
-  --citicious-bg: rgba(255, 255, 255, 0.72);
+  --citicious-bg: rgba(255, 255, 255, 0.5);
   --citicious-fg: #1F2937;
   --citicious-chip: rgba(31, 41, 55, 0.06);
   --citicious-focus: #1D4ED8;
   padding: 6px 16px !important;
-  border-bottom: 1px solid rgba(31, 41, 55, 0.12) !important;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1) !important;
-  backdrop-filter: blur(14px) saturate(1.5) !important;
-  -webkit-backdrop-filter: blur(14px) saturate(1.5) !important;
+  border-bottom: 1px solid rgba(31, 41, 55, 0.1) !important;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08) !important;
+  backdrop-filter: blur(18px) saturate(1.5) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.5) !important;
 }
 
 /* Without backdrop-filter support the translucent background would just
@@ -542,7 +542,7 @@
   }
 
   .citicious-banner.citicious-banner--summary {
-    --citicious-bg: rgba(17, 24, 39, 0.68);
+    --citicious-bg: rgba(17, 24, 39, 0.45);
     --citicious-fg: #F3F4F6;
     --citicious-chip: rgba(255, 255, 255, 0.1);
     --citicious-focus: #93C5FD;
