@@ -281,14 +281,19 @@ function findReferenceListByContent(document: Document): HTMLElement | null {
  * Extract citation title from reference element
  */
 function extractTitleFromReference(element: HTMLElement): string | undefined {
-  // Look for title in common citation patterns
+  // Only trust markup that explicitly labels the title. Earlier heuristics
+  // (any <em>/<i>, or a regex over the reference prose) routinely captured the
+  // journal name or a stray sentence instead, and a wrong title here becomes a
+  // false "title mismatch" accusation against a perfectly good reference. When
+  // no title can be read with confidence, none is reported and the citation is
+  // judged on its identifier alone.
   const titleSelectors = [
     '.citation-title',
     '.reference-title',
-    '.title',
-    'em',
-    'i',
+    '.article-title',
     '[data-title]',
+    '[itemprop="name"]',
+    '.title',
   ];
 
   for (const selector of titleSelectors) {
@@ -300,14 +305,6 @@ function extractTitleFromReference(element: HTMLElement): string | undefined {
         return title;
       }
     }
-  }
-
-  // Try to extract from text content (often after author names and before journal)
-  const text = element.textContent || '';
-  // Common pattern: Author(s). Title. Journal...
-  const titleMatch = text.match(/\.\s+([A-Z][^.]+[.?!])\s+[A-Z]/);
-  if (titleMatch && titleMatch[1].length > 20) {
-    return titleMatch[1].trim();
   }
 
   return undefined;

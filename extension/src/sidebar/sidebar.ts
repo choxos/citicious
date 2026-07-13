@@ -223,7 +223,16 @@ function renderCitationCard(citation: CitationData): string {
     `;
   }
 
-  const safeTitle = escapeHtml(citation.title || 'Untitled');
+  // Prefer the title as printed on the page, then the authoritative record
+  // title from CrossRef/OpenAlex; many publishers' reference markup does not
+  // expose a title that can be extracted reliably.
+  const displayTitle =
+    citation.title ||
+    citation.validation?.matchedData?.title ||
+    citation.details?.title ||
+    citation.doi ||
+    'Untitled reference';
+  const safeTitle = escapeHtml(displayTitle);
   const safeId = escapeHtml(citation.id);
   const safeDoi = citation.doi ? escapeHtml(citation.doi) : '';
 
