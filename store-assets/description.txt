@@ -1,0 +1,35 @@
+Citicious checks the science you are reading, while you read it.
+
+Open a paper and Citicious quietly verifies the article itself and every reference in its bibliography against the public scholarly record. If something is wrong, you see it immediately, in place, without leaving the page.
+
+WHAT IT CATCHES
+
+Retracted articles. A banner appears the moment you open a paper that has been retracted, with the date, the type of notice, and a direct link to the retraction notice itself.
+
+Fabricated citations. AI writing tools invent references that look perfectly real. Citicious flags a DOI that is registered nowhere and resolves nowhere, so you can catch an invented reference before it reaches your manuscript.
+
+Expressions of concern and corrections. The quieter signals that a paper has been questioned or amended, surfaced next to the citation instead of buried in a notice you would never see.
+
+Citation details that do not match the published record. When a reference's title differs from the work its DOI actually points to, the entry is marked so you can check it.
+
+HOW IT WORKS
+
+Citicious reads the identifiers already printed on the page (DOIs and PubMed IDs) and validates them against CrossRef and OpenAlex, two of the largest public scholarly databases, plus the official doi.org resolver. Retraction status comes from CrossRef, which carries the Retraction Watch database. Results are cached locally for a day so the same reference is never looked up twice.
+
+WHAT YOU SEE
+
+A banner at the top of a retracted article, with a link to the notice.
+An inline badge beside every reference in the bibliography.
+A glass summary bar that counts the problems on the page; click a count to jump straight to the first flagged reference.
+A side panel listing every citation and its status.
+A DOI checker in the toolbar popup, for verifying any reference on demand.
+
+BUILT TO BE FAIR
+
+A conservative tool is the only kind worth trusting. A DOI that is registered but simply not indexed, such as a dataset, a thesis, or a piece of software, is labeled "Unverified" rather than fake. When a database is unreachable, Citicious says nothing at all rather than guessing. It will never call a reference fake unless the DOI fails to resolve anywhere.
+
+PRIVACY
+
+All processing happens in your browser. Citicious sends only DOIs and PubMed IDs, and only to the public APIs it validates against. No accounts, no tracking, no analytics, no personal data, and nothing sent to any server of ours, because there is no server of ours.
+
+Free, open source, and built by a researcher: https://github.com/choxos/citicious
