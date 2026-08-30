@@ -18,8 +18,11 @@ export interface RetractionCheckRequest {
   pmid?: string;
 }
 
+export type RetractionStatus = 'retracted' | 'concern' | 'correction';
+
 export interface RetractionCheckResponse {
   isRetracted: boolean;
+  status?: RetractionStatus;
   details?: RetractionDetails;
 }
 
@@ -56,6 +59,7 @@ export interface MatchedData {
 // Citation status - simplified for user clarity
 export type CitationStatus =
   | 'verified'       // ✓ DOI exists in CrossRef/OpenAlex
+  | 'unverified'
   | 'retracted'      // ⚠️ In RWD as retraction
   | 'concern'        // ⚠️ In RWD as expression of concern
   | 'correction'     // ⚠️ In RWD as correction

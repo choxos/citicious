@@ -1,0 +1,93 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import Fastify from 'fastify';
+import { citationRoutes } from '../dist/routes/citation.routes.js';
+import { CitationValidatorService } from '../dist/services/citation-validator.service.js';
+import { RetractionService } from '../dist/services/retraction.service.js';
+
+function crossrefResponse(updates) {
+  return new Response(JSON.stringify({
+    message: {
+      title: ['Reviewed article'],
+      'container-title': ['Test Journal'],
+      publisher: 'Test Publisher',
+      author: [{ given: 'Ada', family: 'Lovelace' }],
+      created: { 'date-time': '2020-01-01T00:00:00Z' },
+      'updated-by': updates,
+    },
+  }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+function update(type, date, doi = `10.1234/${type}`) {
+  return { type, DOI: doi, updated: { 'date-time': date } };
+}
+
+test('automated-review citation states stay distinct and order-independent', async (t) => {
+  const originalFetch = globalThis.fetch;
+  const retractions = new RetractionService();
+  const validator = new CitationValidatorService();
+
+  try {
+    await t.test('selects retraction severity independent of Crossref array order', async () => {
+      const concern = update('expression-of-concern', '2024-01-01T00:00:00Z');
+      const retraction = update('retraction', '2023-01-01T00:00:00Z');
+
+      globalThis.fetch = async () => crossrefResponse([concern, retraction]);
+      const concernFirst = await retractions.checkViaCrossRefApi('10.1234/article');
+      globalThis.fetch = async () => crossrefResponse([retraction, concern]);
+      const retractionFirst = await retractions.checkViaCrossRefApi('10.1234/article');
+
+      assert.equal(concernFirst.status, 'retracted');
+      assert.equal(concernFirst.details?.retractionNature, 'Retraction');
+      assert.deepEqual(concernFirst, retractionFirst);
+    });
+
+    await t.test('does not report a retraction superseded by a later reinstatement', async () => {
+      globalThis.fetch = async () => crossrefResponse([
+        update('retraction', '2023-01-01T00:00:00Z'),
+        update('reinstatement', '2024-01-01T00:00:00Z'),
+      ]);
+
+      const result = await retractions.checkViaCrossRefApi('10.1234/article');
+      assert.equal(result.status, undefined);
+      assert.equal(result.isRetracted, false);
+    });
+
+    await t.test('preserves expression-of-concern status through the full route', async () => {
+      globalThis.fetch = async () => crossrefResponse([
+        update('expression-of-concern', '2024-01-01T00:00:00Z'),
+      ]);
+      const app = Fastify();
+      await app.register(citationRoutes);
+
+      try {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/check/full',
+          payload: { doi: '10.1234/article' },
+        });
+        assert.equal(response.statusCode, 200);
+        assert.equal(response.json().status, 'concern');
+        assert.equal(response.json().isRetracted, false);
+      } finally {
+        await app.close();
+      }
+    });
+
+    await t.test('distinguishes a missing PMID from a transient lookup error', async () => {
+      globalThis.fetch = async () => new Response(null, { status: 404 });
+      const missing = await validator.validate({ pmid: '99999999' });
+      globalThis.fetch = async () => new Response(null, { status: 503 });
+      const unavailable = await validator.validate({ pmid: '99999999' });
+
+      assert.equal(missing.status, 'unverified');
+      assert.equal(missing.source, 'openalex');
+      assert.equal(unavailable.status, 'skip');
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

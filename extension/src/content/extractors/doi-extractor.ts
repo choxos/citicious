@@ -7,6 +7,8 @@ const DOI_REGEX = /\b(10\.\d{4,9}\/[^\s"'<>]+)\b/i;
 // PubMed ID patterns (inline "PMID: n" text and pubmed.ncbi.nlm.nih.gov links)
 const PMID_REGEX = /\bPMID:\s*(\d+)\b/i;
 const PMID_URL_REGEX = /pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/i;
+const REFERENCE_HEADING_REGEX =
+  /^(?:\d+\.?\s*)?(?:references?|bibliography|works cited|literature cited|references and notes)$/;
 export const MAX_REFERENCES_PER_PAGE = 500;
 
 /**
@@ -210,12 +212,10 @@ export function findReferenceSection(document: Document): HTMLElement | null {
   // Look for a section heading like "References"/"Bibliography" and return its
   // container. Kept to standalone headings to avoid matching sidebar widgets
   // like "References & Citations".
-  const HEADING_TERMS = '(references?|bibliography|works cited|literature cited|references and notes)';
-  const headingRegex = new RegExp(`^(?:\\d+\\.?\\s*)?${HEADING_TERMS}$`);
   const headings = document.querySelectorAll('h1, h2, h3, h4');
   for (const heading of headings) {
     const headingText = heading.textContent?.trim().toLowerCase() || '';
-    if (headingRegex.test(headingText)) {
+    if (REFERENCE_HEADING_REGEX.test(headingText)) {
       // Return the parent section or the heading's next siblings container
       const parent = heading.closest('section, article, .content, .paper-content, main') || heading.parentElement;
       if (parent) {
@@ -368,7 +368,8 @@ function extractTitleFromReference(element: HTMLElement): string | undefined {
 function findLeafReferenceElements(
   referenceSection: HTMLElement,
   selector: string,
-  limit: number
+  limit: number,
+  afterHeading?: Element
 ): HTMLElement[] {
   const elements: HTMLElement[] = [];
   const stack: Array<{
@@ -398,7 +399,12 @@ function findLeafReferenceElements(
       if (
         completed.matches &&
         !completed.hasMatchingDescendant &&
-        (completed.element.textContent || '').trim()
+        (completed.element.textContent || '').trim() &&
+        (!afterHeading ||
+          Boolean(
+            afterHeading.compareDocumentPosition(completed.element) &
+              Node.DOCUMENT_POSITION_FOLLOWING
+          ))
       ) {
         elements.push(completed.element);
         if (elements.length >= limit) return elements;
@@ -439,17 +445,37 @@ export function extractReferenceDois(
   );
   if (boundedLimit === 0) return [];
 
+  const referenceHeading = Array.from(
+    referenceSection.querySelectorAll('h1, h2, h3, h4')
+  ).find((heading) =>
+    REFERENCE_HEADING_REGEX.test(heading.textContent?.trim().toLowerCase() || '')
+  );
   let elements: HTMLElement[] = [];
   for (const selector of selectorGroups) {
-    const matches = findLeafReferenceElements(referenceSection, selector, boundedLimit);
-    if (matches.length > 0) {
+    const matches = findLeafReferenceElements(
+      referenceSection,
+      selector,
+      boundedLimit,
+      referenceHeading
+    );
+    if (
+      matches.length > 0 &&
+      (!referenceHeading ||
+        elements.length === 0 ||
+        Boolean(
+          matches[0].compareDocumentPosition(elements[0]) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        ))
+    ) {
       elements = matches;
-      break;
+      if (!referenceHeading) break;
     }
   }
 
   if (elements.length === 0 && (referenceSection.textContent || '').trim()) {
-    elements = [referenceSection];
+    elements = [
+      (referenceHeading?.nextElementSibling as HTMLElement | null) || referenceSection,
+    ];
   }
 
   return elements.map((element) => {

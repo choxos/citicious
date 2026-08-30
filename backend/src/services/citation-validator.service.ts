@@ -46,7 +46,7 @@ export class CitationValidatorService {
     return {
       exists: false,
       confidence: 0,
-      source: 'none',
+      source: openalexResult.status === 'not_found' ? 'openalex' : 'none',
       discrepancies:
         openalexResult.status === 'not_found'
           ? [
@@ -58,7 +58,7 @@ export class CitationValidatorService {
               },
             ]
           : [],
-      status: 'skip',
+      status: openalexResult.status === 'not_found' ? 'unverified' : 'skip',
     };
   }
 

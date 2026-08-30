@@ -66,6 +66,23 @@ describe('findReferenceSection', () => {
     expect(section?.tagName).toBe('SECTION');
   });
 
+  it('ignores article content before a standalone References heading', () => {
+    document.body.innerHTML = `
+      <article>
+        <ul><li>Unrelated article navigation</li></ul>
+        <h2>References</h2>
+        <p>Doe J. First reference. doi:10.1234/first</p>
+        <p>Roe J. Identifierless reference.</p>
+        <p>Poe J. Third reference. doi:10.1234/third</p>
+      </article>`;
+    const citations = extractReferenceDois(findReferenceSection(document)!);
+    expect(citations.map((citation) => citation.referenceText)).toEqual([
+      'Doe J. First reference. doi:10.1234/first',
+      'Roe J. Identifierless reference.',
+      'Poe J. Third reference. doi:10.1234/third',
+    ]);
+  });
+
   it('finds a doc-bibliography role container', () => {
     document.body.innerHTML = '<div role="doc-bibliography"><p>Ref</p></div>';
     expect(findReferenceSection(document)).not.toBeNull();

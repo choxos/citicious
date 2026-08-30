@@ -93,10 +93,10 @@ export async function citationRoutes(app: FastifyInstance) {
         citation.pmid
       );
 
-      if (retractionResult.isRetracted) {
+      if (retractionResult.status) {
         return {
-          status: 'retracted',
-          isRetracted: true,
+          status: retractionResult.status,
+          isRetracted: retractionResult.isRetracted,
           retractionDetails: retractionResult.details,
           validation: null,
         };
@@ -167,11 +167,11 @@ export async function citationRoutes(app: FastifyInstance) {
               citation.pmid
             );
 
-            if (retractionResult.isRetracted) {
+            if (retractionResult.status) {
               return {
                 input: { doi: citation.doi, pmid: citation.pmid, title: citation.title },
-                status: 'retracted' as const,
-                isRetracted: true,
+                status: retractionResult.status,
+                isRetracted: retractionResult.isRetracted,
                 retractionDetails: retractionResult.details,
                 validation: null,
               };
