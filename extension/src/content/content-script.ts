@@ -344,6 +344,7 @@ export async function scanPage() {
         updateBadge(citation.element, 'failed');
       }
     }
+    syncPageBanner();
     broadcastPageStatus();
   }
 }
@@ -396,6 +397,7 @@ function observePageChanges() {
   const observer = new MutationObserver((mutations) => {
     // Check if new DOIs might have been added
     let shouldRescan = window.location.href !== lastScannedUrl;
+    let referenceSection: HTMLElement | null | undefined;
 
     for (const mutation of mutations) {
       if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
@@ -407,15 +409,19 @@ function observePageChanges() {
             if (element.closest?.('.citicious-badge, .citicious-banner')) {
               continue;
             }
+            if (referenceSection === undefined) {
+              referenceSection = findReferenceSection(document);
+            }
             // Check if added element or its children contain DOI patterns.
             // Test textContent against a real DOI prefix pattern; a bare
             // "10." would fire on prices, versions, and timestamps.
             if (
               /\b10\.\d{4,9}\//.test(element.textContent || '') ||
               /\bPMID:\s*\d+\b/i.test(element.textContent || '') ||
-              element.closest?.('.references, .bibliography, [role="doc-bibliography"]') ||
+              (referenceSection &&
+                (referenceSection.contains(element) || element.contains(referenceSection))) ||
               element.querySelector?.(
-                '[data-doi], a[href*="doi.org"], a[href*="pubmed.ncbi.nlm.nih.gov"], .references, .bibliography, [role="doc-bibliography"]'
+                '[data-doi], a[href*="doi.org"], a[href*="pubmed.ncbi.nlm.nih.gov"]'
               )
             ) {
               shouldRescan = true;

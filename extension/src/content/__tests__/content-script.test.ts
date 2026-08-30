@@ -22,7 +22,7 @@ describe('dynamic references', () => {
   it('rescans an identifierless entry appended inside a bibliography', async () => {
     document.head.innerHTML = '<meta name="citation_title" content="Test article">';
     document.body.innerHTML = `
-      <ol class="references">
+      <ol class="reference-list">
         <li id="initial-reference">Initial reference without an identifier</li>
       </ol>
     `;
@@ -64,7 +64,7 @@ describe('dynamic references', () => {
     expect(mutationCallback).toBeDefined();
 
     vi.useFakeTimers();
-    const bibliography = document.querySelector('.references')!;
+    const bibliography = document.querySelector('.reference-list')!;
     const appended = document.createElement('li');
     appended.id = 'appended-reference';
     appended.textContent = 'New reference without an identifier';
@@ -84,7 +84,7 @@ describe('dynamic references', () => {
     expect(appended.textContent).toContain('NOT CHECKED');
   });
 
-  it('clears the summary banner when the final flagged reference is removed', async () => {
+  it('clears the summary banner after the final flag disappears, including failed replacements', async () => {
     document.head.innerHTML = '<meta name="citation_title" content="Test article">';
     document.body.innerHTML = `
       <section role="doc-bibliography">
@@ -93,9 +93,11 @@ describe('dynamic references', () => {
     `;
     Object.defineProperty(document, 'readyState', { configurable: true, value: 'complete' });
 
+    let failChecks = false;
     const sendMessage = vi.fn(
       async (message: { type: string; payload?: Array<{ id: string }> }) => {
         if (message.type !== 'CHECK_BATCH') return { success: true };
+        if (failChecks) return { error: 'storage unavailable' };
         return {
           results: (message.payload || []).map((citation) => ({
             id: citation.id,
@@ -119,6 +121,25 @@ describe('dynamic references', () => {
     document.getElementById('flagged-reference')?.remove();
     await scanPage();
 
+    expect(document.getElementById('citicious-top-banner')).toBeNull();
+
+    const bibliography = document.querySelector('[role="doc-bibliography"]')!;
+    const nextFlagged = document.createElement('div');
+    nextFlagged.setAttribute('role', 'listitem');
+    nextFlagged.textContent = 'Replacement retraction doi:10.1000/retracted-again';
+    bibliography.append(nextFlagged);
+    await scanPage();
+    expect(document.getElementById('citicious-top-banner')).not.toBeNull();
+
+    failChecks = true;
+    nextFlagged.remove();
+    const failedReplacement = document.createElement('div');
+    failedReplacement.setAttribute('role', 'listitem');
+    failedReplacement.textContent = 'Failed replacement doi:10.1000/unavailable';
+    bibliography.append(failedReplacement);
+    await scanPage();
+
+    expect(failedReplacement.textContent).toContain('CHECK FAILED');
     expect(document.getElementById('citicious-top-banner')).toBeNull();
   });
 
