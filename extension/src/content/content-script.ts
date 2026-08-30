@@ -86,6 +86,47 @@ function broadcastPageStatus(): void {
     .catch(() => {});
 }
 
+function syncPageBanner(): void {
+  const currentArticleResult = Array.from(checkedCitations.values()).find(
+    (citation) => citation.context === 'current-article'
+  )?.result;
+
+  if (currentArticleResult?.isRetracted) {
+    injectTopBanner('retracted', currentArticleResult.retractionDetails || undefined);
+    return;
+  }
+  if (currentArticleResult?.status === 'concern' || currentArticleResult?.status === 'correction') {
+    injectTopBanner(
+      currentArticleResult.status,
+      currentArticleResult.retractionDetails || undefined
+    );
+    return;
+  }
+  if (
+    currentArticleResult?.status === 'fake-likely' ||
+    currentArticleResult?.status === 'fake-probably'
+  ) {
+    injectTopBanner(
+      currentArticleResult.status,
+      undefined,
+      currentArticleResult.validation?.discrepancies
+    );
+    return;
+  }
+
+  const counts = { retracted: 0, notFound: 0, mismatch: 0, concern: 0, correction: 0 };
+  for (const checked of checkedCitations.values()) {
+    if (checked.context !== 'reference') continue;
+    const status = checked.result?.status;
+    if (status === 'retracted') counts.retracted++;
+    else if (status === 'fake-likely') counts.notFound++;
+    else if (status === 'fake-probably') counts.mismatch++;
+    else if (status === 'concern') counts.concern++;
+    else if (status === 'correction') counts.correction++;
+  }
+  injectReferencesBanner(counts, jumpToFirstReference);
+}
+
 /**
  * Initialize the content script
  */
@@ -251,6 +292,7 @@ export async function scanPage() {
   const citations = [...currentArticleCandidates, ...referencesToCheck];
 
   if (citations.length === 0) {
+    syncPageBanner();
     broadcastPageStatus();
     return;
   }
@@ -310,23 +352,12 @@ export async function scanPage() {
  * Handle check results from service worker
  */
 function handleCheckResults(results: { id: string; result: FullCheckResult }[]) {
-  let hasRetractedCurrentArticle = false;
-  let currentArticleResult: FullCheckResult | null = null;
-
   for (const { id, result } of results) {
     const checked = checkedCitations.get(id);
     if (!checked) continue;
 
     checked.checking = false;
     checked.result = result;
-
-    // Handle current article
-    if (checked.context === 'current-article') {
-      currentArticleResult = result;
-      if (result.isRetracted) {
-        hasRetractedCurrentArticle = true;
-      }
-    }
 
     // Update badge for references
     if (checked.context === 'reference') {
@@ -352,61 +383,7 @@ function handleCheckResults(results: { id: string; result: FullCheckResult }[]) 
     }
   }
 
-  // Show top banner if current article is problematic
-  if (currentArticleResult) {
-    if (hasRetractedCurrentArticle) {
-      injectTopBanner(
-        'retracted',
-        currentArticleResult.retractionDetails || undefined
-      );
-    } else if (currentArticleResult.status === 'concern') {
-      injectTopBanner(
-        'concern',
-        currentArticleResult.retractionDetails || undefined
-      );
-    } else if (currentArticleResult.status === 'correction') {
-      injectTopBanner(
-        'correction',
-        currentArticleResult.retractionDetails || undefined
-      );
-    } else if (currentArticleResult.status === 'fake-likely') {
-      injectTopBanner(
-        'fake-likely',
-        undefined,
-        currentArticleResult.validation?.discrepancies
-      );
-    } else if (currentArticleResult.status === 'fake-probably') {
-      injectTopBanner(
-        'fake-probably',
-        undefined,
-        currentArticleResult.validation?.discrepancies
-      );
-    }
-  }
-
-  // If no current article banner, show references banner if there are issues
-  if (
-    !currentArticleResult ||
-    !['retracted', 'concern', 'correction', 'fake-likely', 'fake-probably'].includes(
-      currentArticleResult.status
-    )
-  ) {
-    // Count problematic references per status so the banner can convey
-    // severity accurately
-    const counts = { retracted: 0, notFound: 0, mismatch: 0, concern: 0, correction: 0 };
-
-    for (const [, checked] of checkedCitations) {
-      if (checked.context !== 'reference') continue;
-      const status = checked.result?.status;
-      if (status === 'retracted') counts.retracted++;
-      else if (status === 'fake-likely') counts.notFound++;
-      else if (status === 'fake-probably') counts.mismatch++;
-      else if (status === 'concern') counts.concern++;
-      else if (status === 'correction') counts.correction++;
-    }
-
-    injectReferencesBanner(counts, jumpToFirstReference);
-  }
+  syncPageBanner();
 
   // Broadcast results so an open sidebar can live-update
   broadcastPageStatus();
@@ -436,6 +413,7 @@ function observePageChanges() {
             if (
               /\b10\.\d{4,9}\//.test(element.textContent || '') ||
               /\bPMID:\s*\d+\b/i.test(element.textContent || '') ||
+              element.closest?.('.references, .bibliography, [role="doc-bibliography"]') ||
               element.querySelector?.(
                 '[data-doi], a[href*="doi.org"], a[href*="pubmed.ncbi.nlm.nih.gov"], .references, .bibliography, [role="doc-bibliography"]'
               )

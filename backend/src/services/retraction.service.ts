@@ -228,13 +228,15 @@ export class RetractionService {
   async checkByDoi(doi: string): Promise<CrossRefCheckResponse> {
     // Primary: CrossRef API (includes Retraction Watch data)
     const apiResult = await this.checkViaCrossRefApi(doi);
-    if (apiResult.status || apiResult.isReinstated) {
+    if (apiResult.status === 'retracted' || apiResult.isReinstated) {
       return apiResult;
     }
 
     // Fallback: Local Retraction Watch database
     // (in case CrossRef doesn't have the retraction yet or API failed)
-    return this.checkByDoiLocal(doi);
+    const localResult = await this.checkByDoiLocal(doi);
+    if (localResult.isRetracted) return localResult;
+    return apiResult.status ? apiResult : localResult;
   }
 
   /**
@@ -264,9 +266,11 @@ export class RetractionService {
    * Check by either DOI or PMID
    */
   async check(doi?: string, pmid?: string): Promise<RetractionCheckResponse> {
+    let doiResult: CrossRefCheckResponse | undefined;
     if (doi) {
-      const result = await this.checkByDoi(doi);
-      if (result.status || result.isReinstated) return result;
+      doiResult = await this.checkByDoi(doi);
+      if (doiResult.isReinstated) return { isRetracted: false };
+      if (doiResult.isRetracted) return doiResult;
     }
 
     if (pmid) {
@@ -274,6 +278,7 @@ export class RetractionService {
       if (result.status) return result;
     }
 
+    if (doiResult?.status) return doiResult;
     return { isRetracted: false };
   }
 

@@ -2,9 +2,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FullCheckResult } from '../../shared/types';
 
-const result = (status: 'verified' | 'not-checkable'): FullCheckResult => ({
+const result = (status: FullCheckResult['status']): FullCheckResult => ({
   status,
-  isRetracted: false,
+  isRetracted: status === 'retracted',
   retractionDetails: null,
   validation: null,
 });
@@ -19,6 +19,109 @@ afterEach(() => {
 });
 
 describe('dynamic references', () => {
+  it('rescans an identifierless entry appended inside a bibliography', async () => {
+    document.head.innerHTML = '<meta name="citation_title" content="Test article">';
+    document.body.innerHTML = `
+      <ol class="references">
+        <li id="initial-reference">Initial reference without an identifier</li>
+      </ol>
+    `;
+    Object.defineProperty(document, 'readyState', { configurable: true, value: 'complete' });
+
+    let mutationCallback: MutationCallback | undefined;
+    class TestMutationObserver {
+      constructor(callback: MutationCallback) {
+        mutationCallback = callback;
+      }
+      observe() {}
+      disconnect() {}
+      takeRecords() { return []; }
+    }
+    vi.stubGlobal('MutationObserver', TestMutationObserver);
+
+    const sendMessage = vi.fn(
+      async (message: { type: string; payload?: Array<{ id: string }> }) => {
+        if (message.type !== 'CHECK_BATCH') return { success: true };
+        return {
+          results: (message.payload || []).map((citation) => ({
+            id: citation.id,
+            result: result('not-checkable'),
+          })),
+        };
+      }
+    );
+    vi.stubGlobal('chrome', {
+      runtime: {
+        sendMessage,
+        onMessage: { addListener: vi.fn() },
+      },
+    });
+
+    await import('../content-script');
+    await vi.waitFor(() => {
+      expect(document.getElementById('initial-reference')?.textContent).toContain('NOT CHECKED');
+    });
+    expect(mutationCallback).toBeDefined();
+
+    vi.useFakeTimers();
+    const bibliography = document.querySelector('.references')!;
+    const appended = document.createElement('li');
+    appended.id = 'appended-reference';
+    appended.textContent = 'New reference without an identifier';
+    bibliography.append(appended);
+    mutationCallback!(
+      [{
+        type: 'childList',
+        target: bibliography,
+        addedNodes: [appended],
+        removedNodes: [],
+      } as unknown as MutationRecord],
+      {} as MutationObserver
+    );
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'CHECK_BATCH')).toHaveLength(2);
+    expect(appended.textContent).toContain('NOT CHECKED');
+  });
+
+  it('clears the summary banner when the final flagged reference is removed', async () => {
+    document.head.innerHTML = '<meta name="citation_title" content="Test article">';
+    document.body.innerHTML = `
+      <section role="doc-bibliography">
+        <div role="listitem" id="flagged-reference">Reference doi:10.1000/retracted</div>
+      </section>
+    `;
+    Object.defineProperty(document, 'readyState', { configurable: true, value: 'complete' });
+
+    const sendMessage = vi.fn(
+      async (message: { type: string; payload?: Array<{ id: string }> }) => {
+        if (message.type !== 'CHECK_BATCH') return { success: true };
+        return {
+          results: (message.payload || []).map((citation) => ({
+            id: citation.id,
+            result: result('retracted'),
+          })),
+        };
+      }
+    );
+    vi.stubGlobal('chrome', {
+      runtime: {
+        sendMessage,
+        onMessage: { addListener: vi.fn() },
+      },
+    });
+
+    const { scanPage } = await import('../content-script');
+    await vi.waitFor(() => {
+      expect(document.getElementById('citicious-top-banner')).not.toBeNull();
+    });
+
+    document.getElementById('flagged-reference')?.remove();
+    await scanPage();
+
+    expect(document.getElementById('citicious-top-banner')).toBeNull();
+  });
+
   it('rechecks an existing reference when a lazy-loaded identifier appears', async () => {
     document.head.innerHTML = '<meta name="citation_title" content="Test article">';
     document.body.innerHTML = `

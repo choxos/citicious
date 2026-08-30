@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   injectTopBanner,
   injectBadge,
+  updateBadge,
   injectReferencesBanner,
   removeAllBadges,
 } from '../badge-injector';
@@ -162,6 +163,17 @@ describe('injectReferencesBanner', () => {
 });
 
 describe('injectBadge tooltips', () => {
+  it('updates a definition-list badge in place', () => {
+    document.body.innerHTML = '<dl><dd id="ref">Some reference</dd></dl>';
+    const el = document.getElementById('ref') as HTMLElement;
+    injectBadge(el, 'checking');
+    updateBadge(el, 'verified');
+
+    expect(el.querySelectorAll('.citicious-badge')).toHaveLength(1);
+    expect(document.querySelectorAll('.citicious-badge')).toHaveLength(1);
+    expect(el.querySelector('.citicious-badge')?.textContent).toContain('Verified');
+  });
+
   it('omits reason text when the reason list is empty', () => {
     document.body.innerHTML = '<li id="ref">Some reference</li>';
     const el = document.getElementById('ref') as HTMLElement;

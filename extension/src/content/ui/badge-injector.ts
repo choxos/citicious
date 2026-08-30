@@ -307,6 +307,8 @@ export function injectReferencesBanner(
   const total =
     counts.retracted + counts.notFound + counts.mismatch + counts.concern + counts.correction;
   if (total === 0) {
+    document.getElementById('citicious-top-banner')?.remove();
+    restoreBodyMargin();
     return null;
   }
 
@@ -498,7 +500,12 @@ export function injectBadge(
   // with list numbering on publishers that use hanging indents (the badge
   // gets pulled left over the "7." marker); the end of the reference, next
   // to the publisher's own outbound links, is collision-free.
-  if (element.tagName === 'LI' || element.tagName === 'P' || element.tagName === 'DIV') {
+  if (
+    element.tagName === 'LI' ||
+    element.tagName === 'P' ||
+    element.tagName === 'DIV' ||
+    element.tagName === 'DD'
+  ) {
     element.appendChild(badge);
   } else {
     // For inline elements, insert after

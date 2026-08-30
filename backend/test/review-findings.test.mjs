@@ -3,7 +3,10 @@ import test from 'node:test';
 import Fastify from 'fastify';
 import { citationRoutes } from '../dist/routes/citation.routes.js';
 import { CitationValidatorService } from '../dist/services/citation-validator.service.js';
-import { RetractionService } from '../dist/services/retraction.service.js';
+import {
+  RetractionService,
+  retractionService,
+} from '../dist/services/retraction.service.js';
 
 function crossrefResponse(updates) {
   return new Response(JSON.stringify({
@@ -63,6 +66,9 @@ test('automated-review citation states stay distinct and order-independent', asy
         assert.equal(result.isRetracted, false);
         assert.equal(localChecked, false);
 
+        const publicResult = await retractions.check('10.1234/article');
+        assert.deepEqual(publicResult, { isRetracted: false });
+
         globalThis.fetch = async () => crossrefResponse([]);
         const noCrossrefSignal = await retractions.checkByDoi('10.1234/article');
         assert.equal(noCrossrefSignal.status, 'retracted');
@@ -72,10 +78,40 @@ test('automated-review citation states stay distinct and order-independent', asy
       }
     });
 
+    await t.test('lets confirmed local evidence override weaker Crossref states', async () => {
+      globalThis.fetch = async () => crossrefResponse([
+        update('expression-of-concern', '2024-01-01T00:00:00Z'),
+      ]);
+      const originalDoiCheck = retractions.checkByDoiLocal;
+      const originalPmidCheck = retractions.checkByPmid;
+
+      try {
+        retractions.checkByDoiLocal = async () => ({
+          isRetracted: true,
+          status: 'retracted',
+        });
+        const doiResult = await retractions.checkByDoi('10.1234/article');
+        assert.equal(doiResult.status, 'retracted');
+
+        retractions.checkByDoiLocal = async () => ({ isRetracted: false });
+        retractions.checkByPmid = async () => ({
+          isRetracted: true,
+          status: 'retracted',
+        });
+        const combinedResult = await retractions.check('10.1234/article', '12345678');
+        assert.equal(combinedResult.status, 'retracted');
+      } finally {
+        retractions.checkByDoiLocal = originalDoiCheck;
+        retractions.checkByPmid = originalPmidCheck;
+      }
+    });
+
     await t.test('preserves expression-of-concern status through the full route', async () => {
       globalThis.fetch = async () => crossrefResponse([
         update('expression-of-concern', '2024-01-01T00:00:00Z'),
       ]);
+      const originalLocalCheck = retractionService.checkByDoiLocal;
+      retractionService.checkByDoiLocal = async () => ({ isRetracted: false });
       const app = Fastify();
       await app.register(citationRoutes);
 
@@ -89,6 +125,7 @@ test('automated-review citation states stay distinct and order-independent', asy
         assert.equal(response.json().status, 'concern');
         assert.equal(response.json().isRetracted, false);
       } finally {
+        retractionService.checkByDoiLocal = originalLocalCheck;
         await app.close();
       }
     });
