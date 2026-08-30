@@ -32,7 +32,7 @@ beforeAll(async () => {
 });
 
 describe('renderCitationCard', () => {
-  it('uses the failed identifier rather than identifier presence for unverified copy', () => {
+  it('renders unverified copy from optional discrepancy data', () => {
     const citation: CitationData = {
       id: 'dual-id',
       doi: '10.1234/example',
@@ -57,6 +57,8 @@ describe('renderCitationCard', () => {
     expect(renderCitationCard(citation)).toContain('Registered DOI');
     citation.validation!.discrepancies[0].field = 'pmid';
     expect(renderCitationCard(citation)).toContain('PubMed ID not found');
+    Reflect.deleteProperty(citation.validation!, 'discrepancies');
+    expect(renderCitationCard(citation)).toContain('Registered DOI');
   });
 });
 

@@ -290,7 +290,7 @@ export function renderCitationCard(citation: CitationData): string {
   } else if (citation.status === 'unverified') {
     detailsHtml = `
       <div class="citation-card__reason">
-        ${citation.validation?.discrepancies.some((discrepancy) => discrepancy.field === 'pmid')
+        ${citation.validation?.discrepancies?.some((discrepancy) => discrepancy.field === 'pmid')
           ? 'PubMed ID not found in OpenAlex; the reference could not be verified.'
           : 'Registered DOI, but not indexed in CrossRef/OpenAlex (e.g. dataset, software, thesis).'}
       </div>
