@@ -83,6 +83,23 @@ describe('findReferenceSection', () => {
     ]);
   });
 
+  it('prefers structured references over introductory prose after the heading', () => {
+    document.body.innerHTML = `
+      <article>
+        <h2>References</h2>
+        <p>The following works informed this analysis.</p>
+        <ol>
+          <li>Doe J. First reference. doi:10.1234/first</li>
+          <li>Roe J. Identifierless reference.</li>
+        </ol>
+      </article>`;
+    const citations = extractReferenceDois(findReferenceSection(document)!);
+    expect(citations.map((citation) => citation.referenceText)).toEqual([
+      'Doe J. First reference. doi:10.1234/first',
+      'Roe J. Identifierless reference.',
+    ]);
+  });
+
   it('finds a doc-bibliography role container', () => {
     document.body.innerHTML = '<div role="doc-bibliography"><p>Ref</p></div>';
     expect(findReferenceSection(document)).not.toBeNull();

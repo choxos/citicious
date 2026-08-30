@@ -471,17 +471,9 @@ export function extractReferenceDois(
       boundedLimit,
       referenceHeading
     );
-    if (
-      matches.length > 0 &&
-      (!referenceHeading ||
-        elements.length === 0 ||
-        Boolean(
-          matches[0].compareDocumentPosition(elements[0]) &
-            Node.DOCUMENT_POSITION_FOLLOWING
-        ))
-    ) {
+    if (matches.length > 0) {
       elements = matches;
-      if (!referenceHeading) break;
+      break;
     }
   }
 
