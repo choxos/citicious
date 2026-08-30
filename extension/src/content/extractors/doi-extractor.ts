@@ -9,6 +9,8 @@ const PMID_REGEX = /\bPMID:\s*(\d+)\b/i;
 const PMID_URL_REGEX = /pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/i;
 const REFERENCE_HEADING_REGEX =
   /^(?:\d+\.?\s*)?(?:references?|bibliography|works cited|literature cited|references and notes)$/;
+const NON_REFERENCE_SECTION_HINT =
+  /recommend|related|sidebar|promo|advert|cited-by|citedby|metrics|toc|menu/i;
 const REFERENCE_SECTION_SELECTORS = [
   '[role="doc-bibliography"]',
   '#references',
@@ -250,7 +252,6 @@ export function containsReferenceSectionMarker(element: Element): boolean {
 function findReferenceListByContent(document: Document): HTMLElement | null {
   const MIN_REFERENCE_ITEMS = 3;
   const EXCLUDED_ANCESTORS = 'aside, nav, header, footer, [role="complementary"], [role="navigation"]';
-  const EXCLUDED_HINT = /recommend|related|sidebar|promo|advert|cited-by|citedby|metrics|toc|menu/i;
   const CONTAINER_SELECTOR = 'ol, ul, section, div, dl';
   const ENTRY_SELECTOR = 'li, dd, p, div, tr';
 
@@ -285,7 +286,7 @@ function findReferenceListByContent(document: Document): HTMLElement | null {
       excluded:
         (parent?.excluded || false) ||
         current.matches(EXCLUDED_ANCESTORS) ||
-        EXCLUDED_HINT.test(hint),
+        NON_REFERENCE_SECTION_HINT.test(hint),
     });
 
     const child = current.firstElementChild as HTMLElement | null;
@@ -378,24 +379,78 @@ function extractTitleFromReference(element: HTMLElement): string | undefined {
 /**
  * Extract DOIs and URLs from the reference section
  */
-function findLeafReferenceElements(
+function isReferenceEndBoundary(element: Element, referenceHeading: Element): boolean {
+  const headingMatch = /^H([1-4])$/.exec(element.tagName);
+  if (headingMatch && Number(headingMatch[1]) <= Number(referenceHeading.tagName[1])) return true;
+  if (
+    element.matches('aside, nav, footer, [role="complementary"], [role="navigation"]')
+  ) {
+    return true;
+  }
+  const className = typeof element.className === 'string' ? element.className : '';
+  return NON_REFERENCE_SECTION_HINT.test(
+    `${element.id} ${className} ${element.getAttribute('aria-label') || ''}`
+  );
+}
+
+function findReferenceEndBoundary(
+  referenceSection: HTMLElement,
+  referenceHeading: Element
+): Element | undefined {
+  let branch: Element | null = referenceHeading;
+  while (branch && branch !== referenceSection) {
+    let sibling = branch.nextElementSibling;
+    while (sibling) {
+      if (isReferenceEndBoundary(sibling, referenceHeading)) return sibling;
+      sibling = sibling.nextElementSibling;
+    }
+    branch = branch.parentElement;
+  }
+  return undefined;
+}
+
+function isWithinReferenceBounds(
+  element: Element,
+  afterHeading?: Element,
+  beforeBoundary?: Element
+): boolean {
+  if (
+    afterHeading &&
+    !(afterHeading.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING)
+  ) {
+    return false;
+  }
+  return Boolean(
+    !beforeBoundary ||
+      (element !== beforeBoundary &&
+        !beforeBoundary.contains(element) &&
+        element.compareDocumentPosition(beforeBoundary) & Node.DOCUMENT_POSITION_FOLLOWING)
+  );
+}
+
+function findReferenceElements(
   referenceSection: HTMLElement,
   selector: string,
   limit: number,
-  afterHeading?: Element
+  afterHeading?: Element,
+  beforeBoundary?: Element,
+  preferOuter = false
 ): HTMLElement[] {
   const elements: HTMLElement[] = [];
   const stack: Array<{
     element: HTMLElement;
     matches: boolean;
+    hasMatchingAncestor: boolean;
     hasMatchingDescendant: boolean;
   }> = [];
   let current = referenceSection.firstElementChild as HTMLElement | null;
 
   while (current) {
+    const parent = stack[stack.length - 1];
     stack.push({
       element: current,
       matches: current.matches(selector),
+      hasMatchingAncestor: Boolean(parent && (parent.matches || parent.hasMatchingAncestor)),
       hasMatchingDescendant: false,
     });
 
@@ -411,13 +466,9 @@ function findLeafReferenceElements(
       const subtreeMatched = completed.matches || completed.hasMatchingDescendant;
       if (
         completed.matches &&
-        !completed.hasMatchingDescendant &&
+        (preferOuter ? !completed.hasMatchingAncestor : !completed.hasMatchingDescendant) &&
         (completed.element.textContent || '').trim() &&
-        (!afterHeading ||
-          Boolean(
-            afterHeading.compareDocumentPosition(completed.element) &
-              Node.DOCUMENT_POSITION_FOLLOWING
-          ))
+        isWithinReferenceBounds(completed.element, afterHeading, beforeBoundary)
       ) {
         elements.push(completed.element);
         if (elements.length >= limit) return elements;
@@ -463,13 +514,18 @@ export function extractReferenceDois(
   ).find((heading) =>
     REFERENCE_HEADING_REGEX.test(heading.textContent?.trim().toLowerCase() || '')
   );
+  const referenceEndBoundary = referenceHeading
+    ? findReferenceEndBoundary(referenceSection, referenceHeading)
+    : undefined;
   let elements: HTMLElement[] = [];
   for (const selector of selectorGroups) {
-    const matches = findLeafReferenceElements(
+    const matches = findReferenceElements(
       referenceSection,
       selector,
       boundedLimit,
-      referenceHeading
+      referenceHeading,
+      referenceEndBoundary,
+      selector === selectorGroups[0]
     );
     if (matches.length > 0) {
       elements = matches;
@@ -478,9 +534,12 @@ export function extractReferenceDois(
   }
 
   if (elements.length === 0 && (referenceSection.textContent || '').trim()) {
-    elements = [
-      (referenceHeading?.nextElementSibling as HTMLElement | null) || referenceSection,
-    ];
+    const fallback = (referenceHeading?.nextElementSibling as HTMLElement | null) || null;
+    if (fallback && isWithinReferenceBounds(fallback, referenceHeading, referenceEndBoundary)) {
+      elements = [fallback];
+    } else if (!referenceHeading) {
+      elements = [referenceSection];
+    }
   }
 
   return elements.map((element) => {

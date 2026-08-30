@@ -100,6 +100,23 @@ describe('findReferenceSection', () => {
     ]);
   });
 
+  it('stops heading fallback before related post-reference lists', () => {
+    document.body.innerHTML = `
+      <article>
+        <h2>References</h2>
+        <p>Doe J. First reference. doi:10.1234/first</p>
+        <p>Roe J. Identifierless reference.</p>
+        <footer class="related-content">
+          <ul><li>Read another article</li></ul>
+        </footer>
+      </article>`;
+    const citations = extractReferenceDois(findReferenceSection(document)!);
+    expect(citations.map((citation) => citation.referenceText)).toEqual([
+      'Doe J. First reference. doi:10.1234/first',
+      'Roe J. Identifierless reference.',
+    ]);
+  });
+
   it('finds a doc-bibliography role container', () => {
     document.body.innerHTML = '<div role="doc-bibliography"><p>Ref</p></div>';
     expect(findReferenceSection(document)).not.toBeNull();
@@ -216,6 +233,20 @@ describe('extractReferenceDois', () => {
     const section = findReferenceSection(document)!;
     const citations = extractReferenceDois(section);
     expect(citations.filter((c) => c.doi === '10.1234/dup')).toHaveLength(2);
+  });
+
+  it('keeps outer bibliography entries when they contain nested action lists', () => {
+    document.body.innerHTML = `
+      <ol class="references">
+        <li id="outer-one">
+          Doe J. A study. doi:10.1234/outer
+          <ul><li>View article</li><li>Export citation</li></ul>
+        </li>
+        <li id="outer-two">Roe J. Identifierless reference.</li>
+      </ol>`;
+    const citations = extractReferenceDois(findReferenceSection(document)!);
+    expect(citations.map((citation) => citation.element.id)).toEqual(['outer-one', 'outer-two']);
+    expect(citations[0].doi).toBe('10.1234/outer');
   });
 
   it('does not duplicate a DOI repeated inside one reference', () => {
