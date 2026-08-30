@@ -11,26 +11,32 @@ import { healthRoutes } from './routes/health.routes.js';
 config();
 
 const app = Fastify({
-  logger: {
-    level: process.env.LOG_LEVEL || 'info',
-    transport: {
-      target: 'pino-pretty',
-      options: {
-        colorize: true,
+  logger: process.env.NODE_ENV === 'production'
+    ? { level: process.env.LOG_LEVEL || 'info' }
+    : {
+        level: process.env.LOG_LEVEL || 'info',
+        transport: {
+          target: 'pino-pretty',
+          options: {
+            colorize: true,
+          },
+        },
       },
-    },
-  },
 });
 
 // Register plugins
+const corsOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 await app.register(cors, {
-  origin: true, // Allow all origins for extension
+  origin: corsOrigins.length > 0 ? corsOrigins : false,
   methods: ['GET', 'POST', 'OPTIONS'],
 });
 
 await app.register(rateLimit, {
-  max: parseInt(process.env.RATE_LIMIT_MAX || '100'),
-  timeWindow: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000'),
+  max: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
+  timeWindow: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),
 });
 
 // Register routes
@@ -41,23 +47,31 @@ await app.register(citationRoutes, { prefix: '/api/v1' });
 // Error handler
 app.setErrorHandler((error, request, reply) => {
   app.log.error(error);
-  reply.status(error.statusCode || 500).send({
-    error: error.message || 'Internal Server Error',
-    statusCode: error.statusCode || 500,
+  const statusCode =
+    typeof error === 'object' &&
+    error !== null &&
+    'statusCode' in error &&
+    typeof error.statusCode === 'number'
+      ? error.statusCode
+      : 500;
+  const message = error instanceof Error ? error.message : 'Bad Request';
+  reply.status(statusCode).send({
+    error: statusCode >= 500 ? 'Internal Server Error' : message,
+    statusCode,
   });
 });
 
 // Start server
 const start = async () => {
   try {
-    const port = parseInt(process.env.PORT || '3000');
+    const port = parseInt(process.env.PORT || '3000', 10);
     const host = process.env.HOST || '0.0.0.0';
 
     await app.listen({ port, host });
     app.log.info(`Citicious API running on http://${host}:${port}`);
   } catch (err) {
     app.log.error(err);
-    process.exit(1);
+    process.exitCode = 1;
   }
 };
 

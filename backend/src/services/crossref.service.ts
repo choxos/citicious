@@ -1,4 +1,5 @@
 import type { CrossRefWork, CrossRefLookupResult } from '../types.js';
+import { fetchWithTimeout } from '../utils/fetch.js';
 
 const CROSSREF_BASE_URL = 'https://api.crossref.org';
 
@@ -11,7 +12,7 @@ export class CrossRefService {
 
   private get headers(): HeadersInit {
     return {
-      'User-Agent': `Citicious/0.1.0 (mailto:${this.email})`,
+      'User-Agent': `Citicious/0.2.0 (mailto:${this.email})`,
       Accept: 'application/json',
     };
   }
@@ -31,7 +32,7 @@ export class CrossRefService {
     const normalizedDoi = this.normalizeDoi(doi);
 
     try {
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${CROSSREF_BASE_URL}/works/${encodeURIComponent(normalizedDoi)}`,
         { headers: this.headers }
       );
@@ -60,7 +61,7 @@ export class CrossRefService {
    */
   async searchByTitle(title: string, limit = 5): Promise<CrossRefWork[]> {
     try {
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${CROSSREF_BASE_URL}/works?query.title=${encodeURIComponent(title)}&rows=${limit}`,
         { headers: this.headers }
       );
@@ -87,7 +88,7 @@ export class CrossRefService {
   ): Promise<CrossRefWork[]> {
     try {
       const query = `query.author=${encodeURIComponent(author)}&query.title=${encodeURIComponent(title)}&rows=${limit}`;
-      const response = await fetch(`${CROSSREF_BASE_URL}/works?${query}`, {
+      const response = await fetchWithTimeout(`${CROSSREF_BASE_URL}/works?${query}`, {
         headers: this.headers,
       });
 

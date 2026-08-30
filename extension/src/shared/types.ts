@@ -1,13 +1,15 @@
 // Status types - simplified for user clarity
 export type CitationStatus =
   | 'verified'       // ✓ DOI exists in CrossRef/OpenAlex
-  | 'unverified'     // ℹ DOI resolves at doi.org but is not indexed in CrossRef/OpenAlex (e.g. dataset)
+  | 'unverified'
   | 'retracted'      // ⚠️ In RWD as retraction
   | 'concern'        // ⚠️ In RWD as expression of concern
   | 'correction'     // ⚠️ In RWD as correction
   | 'fake-likely'    // ❌ DOI doesn't exist anywhere (404 + fails doi.org resolver), high confidence fake
   | 'fake-probably'  // ⚠️ Metadata very different, medium confidence fake
-  | 'skip'           // No badge - can't determine (API error, no DOI/URL)
+  | 'not-checkable'
+  | 'failed'
+  | 'skip'
   | 'checking';      // Loading state while validating
 
 // Retraction details
@@ -68,6 +70,7 @@ export interface ExtractedCitation {
   pmid?: string;
   url?: string;
   title?: string;
+  referenceText?: string;
   authors?: string[];
   year?: number;
   journal?: string;

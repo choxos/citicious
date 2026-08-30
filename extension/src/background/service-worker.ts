@@ -1,4 +1,4 @@
-import { citiciousAPI } from '../shared/api-client';
+import { applyCitationMetadata, citiciousAPI } from '../shared/api-client';
 import type { ExtractedCitation, FullCheckResult } from '../shared/types';
 
 // Persistent cache (chrome.storage.local). An in-memory Map is unreliable under
@@ -7,14 +7,23 @@ import type { ExtractedCitation, FullCheckResult } from '../shared/types';
 // and are treated as misses once older than CACHE_TTL_MS (TTL enforced on read).
 const CACHE_PREFIX = 'citicious:cache:';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const MAX_BATCH_CITATIONS = 501;
+const inFlightByKey = new Map<string, Promise<FullCheckResult>>();
 
 interface CacheEntry {
   result: FullCheckResult;
   ts: number;
 }
 
-const SKIP_RESULT: FullCheckResult = {
-  status: 'skip',
+const NOT_CHECKABLE_RESULT: FullCheckResult = {
+  status: 'not-checkable',
+  isRetracted: false,
+  retractionDetails: null,
+  validation: null,
+};
+
+const FAILED_RESULT: FullCheckResult = {
+  status: 'failed',
   isRetracted: false,
   retractionDetails: null,
   validation: null,
@@ -24,29 +33,47 @@ const SKIP_RESULT: FullCheckResult = {
  * Read a cached result, honoring the TTL. Expired entries are removed.
  */
 async function getCached(key: string): Promise<FullCheckResult | null> {
-  const storageKey = CACHE_PREFIX + key;
-  const stored = await chrome.storage.local.get(storageKey);
-  const entry = stored[storageKey] as CacheEntry | undefined;
-
-  if (entry && typeof entry.ts === 'number' && Date.now() - entry.ts < CACHE_TTL_MS) {
-    return entry.result;
-  }
-
-  // Expired or malformed -> opportunistic cleanup
-  if (entry) {
-    await chrome.storage.local.remove(storageKey);
-  }
-  return null;
+  return (await getCachedBatch([key])).get(key) || null;
 }
 
-/**
- * Store a result. Transient "skip" results (API/network errors) are NOT cached
- * so they get retried on the next visit.
- */
 async function setCached(key: string, result: FullCheckResult): Promise<void> {
-  if (!key || result.status === 'skip') return;
-  const entry: CacheEntry = { result, ts: Date.now() };
-  await chrome.storage.local.set({ [CACHE_PREFIX + key]: entry });
+  await setCachedBatch(new Map([[key, result]]));
+}
+
+async function getCachedBatch(keys: string[]): Promise<Map<string, FullCheckResult>> {
+  const uniqueKeys = [...new Set(keys.filter(Boolean))];
+  if (uniqueKeys.length === 0) return new Map();
+
+  const storageKeys = uniqueKeys.map((key) => CACHE_PREFIX + key);
+  const stored = await chrome.storage.local.get(storageKeys);
+  const results = new Map<string, FullCheckResult>();
+  const expired: string[] = [];
+  const now = Date.now();
+
+  for (const key of uniqueKeys) {
+    const storageKey = CACHE_PREFIX + key;
+    const entry = stored[storageKey] as CacheEntry | undefined;
+    if (entry && typeof entry.ts === 'number' && now - entry.ts < CACHE_TTL_MS) {
+      results.set(key, entry.result);
+    } else if (entry) {
+      expired.push(storageKey);
+    }
+  }
+
+  if (expired.length > 0) await chrome.storage.local.remove(expired);
+  return results;
+}
+
+async function setCachedBatch(entries: Map<string, FullCheckResult>): Promise<void> {
+  const stored: Record<string, CacheEntry> = {};
+  const now = Date.now();
+
+  for (const [key, result] of entries) {
+    if (!key || ['skip', 'failed', 'not-checkable'].includes(result.status)) continue;
+    stored[CACHE_PREFIX + key] = { result, ts: now };
+  }
+
+  if (Object.keys(stored).length > 0) await chrome.storage.local.set(stored);
 }
 
 /**
@@ -72,21 +99,36 @@ async function sweepExpiredCache(): Promise<void> {
 }
 
 /**
- * Generate cache key for a citation. A page-extracted title influences the
- * classification (metadata mismatch), so titled lookups get their own entries;
- * a bad title extraction on one page must not poison the identifier's cached
- * result for every other page.
+ * Generate a cache key for the authoritative identifier lookup. Page metadata
+ * is compared after lookup so duplicate occurrences share one request.
  */
 function getCacheKey(citation: {
   doi?: string;
   pmid?: string;
-  url?: string;
-  title?: string;
-  id?: string;
 }): string {
-  const base = citation.doi || citation.pmid || citation.url || citation.title || citation.id || '';
-  const title = citation.title?.trim().toLowerCase();
-  return title && base !== title ? `${base}|t:${title}` : base;
+  if (citation.doi) {
+    return `doi:${citation.doi.trim().toLowerCase().replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '')}`;
+  }
+  return citation.pmid ? `pmid:${citation.pmid.trim().replace(/^pmid:\s*/i, '')}` : '';
+}
+
+function identifierOnly(citation: ExtractedCitation): ExtractedCitation {
+  return {
+    ...citation,
+    title: undefined,
+    authors: undefined,
+    year: undefined,
+    journal: undefined,
+  };
+}
+
+function storeInFlight(
+  key: string,
+  lookup: Promise<FullCheckResult>
+): Promise<FullCheckResult> {
+  const request = lookup.catch(() => FAILED_RESULT);
+  inFlightByKey.set(key, request);
+  return request;
 }
 
 /**
@@ -118,9 +160,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 /**
  * Process incoming messages
  */
-async function handleMessage(message: any): Promise<any> {
+export async function handleMessage(message: any): Promise<any> {
   switch (message.type) {
     case 'CHECK_BATCH':
+      if (!Array.isArray(message.payload) || message.payload.length > MAX_BATCH_CITATIONS) {
+        return { error: `Maximum ${MAX_BATCH_CITATIONS} citations per batch` };
+      }
       return handleBatchCheck(message.payload);
 
     case 'CHECK_CITATION':
@@ -140,43 +185,72 @@ async function handleMessage(message: any): Promise<any> {
 /**
  * Handle batch check request
  */
-async function handleBatchCheck(
+export async function handleBatchCheck(
   citations: ExtractedCitation[]
 ): Promise<{ results: { id: string; result: FullCheckResult }[] }> {
-  const results: { id: string; result: FullCheckResult }[] = [];
-  const toCheck: ExtractedCitation[] = [];
+  const resultById = new Map<string, FullCheckResult>();
+  const checkable = citations.filter((citation) => {
+    if (citation.doi || citation.pmid) return true;
+    resultById.set(citation.id, NOT_CHECKABLE_RESULT);
+    return false;
+  });
+  const cached = await getCachedBatch(checkable.map(getCacheKey)).catch(() => new Map());
+  const pendingByKey = new Map<string, ExtractedCitation[]>();
 
-  // Check cache first
-  for (const citation of citations) {
-    const cached = await getCached(getCacheKey(citation));
-    if (cached) {
-      results.push({ id: citation.id, result: cached });
+  for (const citation of checkable) {
+    const key = getCacheKey(citation);
+    const cachedResult = cached.get(key);
+    if (cachedResult) {
+      resultById.set(citation.id, applyCitationMetadata(cachedResult, citation));
     } else {
-      toCheck.push(citation);
+      const pending = pendingByKey.get(key) || [];
+      pending.push(citation);
+      pendingByKey.set(key, pending);
     }
   }
 
-  // Batch check remaining citations via API
-  if (toCheck.length > 0) {
-    try {
-      const apiResults = await citiciousAPI.checkBatch(toCheck);
+  const waitingByKey = new Map<string, Promise<FullCheckResult>>();
+  const fresh: ExtractedCitation[] = [];
+  for (const [key, [citation]] of pendingByKey) {
+    const active = inFlightByKey.get(key);
+    if (active) waitingByKey.set(key, active);
+    else fresh.push(citation);
+  }
 
-      for (const citation of toCheck) {
-        const result = apiResults.get(citation.id);
-        if (result) {
-          await setCached(getCacheKey(citation), result);
-          results.push({ id: citation.id, result });
-        }
-      }
-    } catch {
-      // Return skip status for failed checks (can't determine)
-      for (const citation of toCheck) {
-        results.push({ id: citation.id, result: SKIP_RESULT });
-      }
+  if (fresh.length > 0) {
+    const batch = citiciousAPI.checkBatch(fresh.map(identifierOnly)).catch(() => new Map());
+    for (const citation of fresh) {
+      const key = getCacheKey(citation);
+      waitingByKey.set(
+        key,
+        storeInFlight(
+          key,
+          batch.then((results) => results.get(citation.id) || FAILED_RESULT)
+        )
+      );
     }
   }
 
-  return { results };
+  const toCache = new Map<string, FullCheckResult>();
+  for (const [key, lookup] of waitingByKey) {
+    const result = await lookup;
+    toCache.set(key, result);
+    for (const occurrence of pendingByKey.get(key) || []) {
+      resultById.set(occurrence.id, applyCitationMetadata(result, occurrence));
+    }
+  }
+  await setCachedBatch(toCache).catch(() => {});
+  for (const citation of fresh) {
+    const key = getCacheKey(citation);
+    if (inFlightByKey.get(key) === waitingByKey.get(key)) inFlightByKey.delete(key);
+  }
+
+  return {
+    results: citations.map((citation) => ({
+      id: citation.id,
+      result: resultById.get(citation.id) || FAILED_RESULT,
+    })),
+  };
 }
 
 /**
@@ -193,12 +267,32 @@ async function handleSingleCheck(citation: {
 }): Promise<FullCheckResult> {
   const cacheKey = getCacheKey(citation);
 
-  const cached = cacheKey ? await getCached(cacheKey) : null;
+  const cached = cacheKey ? await getCached(cacheKey).catch(() => null) : null;
   if (cached) {
-    return cached;
+    return applyCitationMetadata(cached, citation);
   }
 
-  const result = await citiciousAPI.checkCitation(citation);
-  await setCached(cacheKey, result);
-  return result;
+  const active = cacheKey ? inFlightByKey.get(cacheKey) : null;
+  const request =
+    active ||
+    (cacheKey
+      ? storeInFlight(
+          cacheKey,
+          citiciousAPI.checkCitation({
+            doi: citation.doi,
+            pmid: citation.pmid,
+            url: citation.url,
+          })
+        )
+      : citiciousAPI.checkCitation({
+          doi: citation.doi,
+          pmid: citation.pmid,
+          url: citation.url,
+        }));
+  const result = await request;
+  await setCached(cacheKey, result).catch(() => {});
+  if (!active && cacheKey && inFlightByKey.get(cacheKey) === request) {
+    inFlightByKey.delete(cacheKey);
+  }
+  return applyCitationMetadata(result, citation);
 }

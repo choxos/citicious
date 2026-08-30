@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   scanPageForDois,
   extractCurrentArticleDoi,
@@ -9,6 +9,7 @@ import {
 } from '../doi-extractor';
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   document.head.innerHTML = '';
   document.body.innerHTML = '';
 });
@@ -112,6 +113,37 @@ describe('findReferenceSection', () => {
       </main>`;
     expect(findReferenceSection(document)).toBeNull();
   });
+
+  it('does not let an excluded sidebar qualify its neutral wrapper', () => {
+    document.body.innerHTML = `
+      <main>
+        <div class="content-shell">
+          <aside>
+            <div><a href="https://doi.org/10.1234/aside-one">a</a></div>
+            <div><a href="https://doi.org/10.1234/aside-two">b</a></div>
+            <div><a href="https://doi.org/10.1234/aside-three">c</a></div>
+          </aside>
+          <p>Ordinary article prose.</p>
+        </div>
+      </main>`;
+    expect(findReferenceSection(document)).toBeNull();
+  });
+
+  it('finds fallback references without descendant-wide element queries', () => {
+    document.body.innerHTML = `
+      <main>
+        <div class="outer">
+          <div class="tight-list">
+            <p>First doi:10.1234/linear-one</p>
+            <p>Second doi:10.1234/linear-two</p>
+            <p>Third doi:10.1234/linear-three</p>
+          </div>
+        </div>
+      </main>`;
+    const querySelectorAll = vi.spyOn(Element.prototype, 'querySelectorAll');
+    expect(findReferenceSection(document)?.className).toBe('tight-list');
+    expect(querySelectorAll).not.toHaveBeenCalled();
+  });
 });
 
 describe('extractReferenceDois', () => {
@@ -133,7 +165,15 @@ describe('extractReferenceDois', () => {
     expect(citations.map((c) => c.doi)).toContain('10.5555/xyz123');
   });
 
-  it('deduplicates repeated DOIs', () => {
+  it('uses a visible DOI when a doi.org link has no parseable DOI', () => {
+    document.body.innerHTML =
+      '<ol class="references"><li>Smith J. doi:10.5555/fallback123 <a href="https://doi.org/about">DOI information</a></li></ol>';
+    const section = findReferenceSection(document)!;
+    const citations = extractReferenceDois(section);
+    expect(citations[0].doi).toBe('10.5555/fallback123');
+  });
+
+  it('keeps repeated DOI occurrences as separate references', () => {
     document.body.innerHTML = `
       <ol class="references">
         <li><a href="https://doi.org/10.1234/dup">a</a></li>
@@ -141,7 +181,141 @@ describe('extractReferenceDois', () => {
       </ol>`;
     const section = findReferenceSection(document)!;
     const citations = extractReferenceDois(section);
+    expect(citations.filter((c) => c.doi === '10.1234/dup')).toHaveLength(2);
+  });
+
+  it('does not duplicate a DOI repeated inside one reference', () => {
+    document.body.innerHTML = `
+      <ol class="references">
+        <li><a href="https://doi.org/10.1234/dup">10.1234/dup</a></li>
+      </ol>`;
+    const section = findReferenceSection(document)!;
+    const citations = extractReferenceDois(section);
     expect(citations.filter((c) => c.doi === '10.1234/dup')).toHaveLength(1);
+  });
+
+  it('returns identifierless entries so coverage is explicit', () => {
+    document.body.innerHTML = `
+      <ol class="references">
+        <li>Doe J. Identified work. <a href="https://doi.org/10.1234/one">DOI</a></li>
+        <li>Roe J. Older book chapter without a persistent identifier.</li>
+        <li>Poe J. PubMed work. PMID: 12345678</li>
+      </ol>`;
+    const section = findReferenceSection(document)!;
+    const citations = extractReferenceDois(section);
+    expect(citations).toHaveLength(3);
+    const identifierless = citations.find((c) => !c.doi && !c.pmid);
+    expect(identifierless?.referenceText).toContain('Older book chapter');
+  });
+
+  it('recognizes ARIA list items used by publisher reference widgets', () => {
+    document.body.innerHTML = `
+      <div role="doc-bibliography">
+        <div role="listitem">First reference. doi:10.1234/one</div>
+        <div role="listitem">Second reference without an identifier.</div>
+      </div>`;
+    const section = findReferenceSection(document)!;
+    const citations = extractReferenceDois(section);
+    expect(citations).toHaveLength(2);
+    expect(citations[1].referenceText).toContain('Second reference');
+  });
+
+  it('excludes extension badges from reference text on a rescan', () => {
+    document.body.innerHTML = `
+      <ol class="references">
+        <li>
+          Reference text.
+          <span class="citicious-badge">NOT CHECKED</span>
+          <a href="https://doi.org/10.1234/lazy">DOI</a>
+        </li>
+      </ol>`;
+    const citations = extractReferenceDois(findReferenceSection(document)!);
+    expect(citations[0].referenceText).toContain('Reference text');
+    expect(citations[0].referenceText).not.toContain('NOT CHECKED');
+  });
+
+  it('matches the 2025-06-01 archived SAGE bibliography for 10.1177/00491241221099552', () => {
+    const archivedDois = [
+      '10.1515/9781400829828',
+      '10.1080/01621459.1996.10476902',
+      '10.1080/01621459.1997.10474074',
+      '10.1097/ede.0b013e31828c776c',
+      '10.1073/pnas.1510507113',
+      '10.1093/jas/sky277',
+      '10.3386/t0343',
+      '10.1093/esr/jcy037',
+      '10.2139/ssrn.3588978',
+      '10.1111/rssb.12348',
+      '10.2307/j.ctv1c29t27',
+      '10.1515/jci-2013-0021',
+      '10.1002/sim.6973',
+      '10.1146/annurev-soc-071913-043455',
+      '10.1097/aln.0000000000003193',
+      '10.1017/9781139161879',
+      '10.1097/00001648-199901000-00008',
+      '10.1038/s41467-020-19478-2',
+      '10.1162/003465304323023688',
+      '10.1111/rssb.12451',
+      '10.1093/aje/kwj275',
+      '10.1017/cbo9781139025751',
+      '10.18637/jss.v047.i11',
+      '10.1111/1467-9868.00381',
+      '10.1093/pan/mpw015',
+      '10.1093/biomet/82.4.669',
+      '10.1093/aje/kwr352',
+      '10.1515/jci-2013-0003',
+      '10.1515/jci-2015-0004',
+      '10.1214/09-ss057',
+      '10.2307/2981697',
+      '10.1007/978-1-4757-3692-2',
+      '10.1002/sim.3565',
+      '10.1016/j.eeh.2020.101356',
+      '10.1002/sim.3554',
+      '10.1002/sim.3532',
+      '10.1515/jci-2016-0009',
+      '10.18637/jss.v076.i12',
+      '10.1162/rest_a_00153',
+      '10.1017/s0266466605050516',
+    ];
+    const archivedPmids = ['34305477', '28089956'];
+    const doiEntries = archivedDois.map(
+      (doi) =>
+        `<div role="listitem"><div class="citations"><div class="citation"><a href="https://doi.org/${doi}">${doi}</a></div></div></div>`
+    );
+    const pmidEntries = archivedPmids.map(
+      (pmid) =>
+        `<div role="listitem"><div class="citations"><div class="citation"><a href="https://pubmed.ncbi.nlm.nih.gov/${pmid}/">PubMed</a></div></div></div>`
+    );
+    const identifierlessEntries = Array.from(
+      { length: 34 },
+      (_, index) =>
+        `<div role="listitem"><div class="citations"><div class="citation">Identifierless reference ${index + 1}</div></div></div>`
+    );
+    document.body.innerHTML = `
+      <section id="bibliography" role="doc-bibliography">
+        <h2>References</h2>
+        <div role="list">${[...doiEntries, ...pmidEntries, ...identifierlessEntries].join('')}</div>
+      </section>`;
+    const citations = extractReferenceDois(findReferenceSection(document)!);
+    expect(citations).toHaveLength(76);
+    expect(citations.filter((citation) => citation.doi).map((citation) => citation.doi)).toEqual(
+      archivedDois
+    );
+    expect(
+      citations.filter((citation) => citation.pmid && !citation.doi).map((citation) => citation.pmid)
+    ).toEqual(archivedPmids);
+    expect(citations.filter((citation) => !citation.doi && !citation.pmid)).toHaveLength(34);
+  });
+
+  it('stops extracting before cloning entries beyond the requested allowance', () => {
+    document.body.innerHTML = `<section role="doc-bibliography">${Array.from(
+      { length: 503 },
+      (_, index) => `<div role="listitem">Reference ${index + 1}</div>`
+    ).join('')}</section>`;
+    const cloneNode = vi.spyOn(Element.prototype, 'cloneNode');
+    const citations = extractReferenceDois(findReferenceSection(document)!, 101);
+    expect(citations).toHaveLength(101);
+    expect(cloneNode).toHaveBeenCalledTimes(101);
   });
 
   it('extracts PubMed IDs for references without a DOI', () => {
@@ -194,7 +368,7 @@ describe('extractReferenceDois', () => {
 });
 
 describe('scanPageForDois', () => {
-  it('returns the current article plus deduplicated references', () => {
+  it('returns the current article plus every reference occurrence', () => {
     document.head.innerHTML = '<meta name="citation_doi" content="10.1000/current">';
     document.body.innerHTML = `
       <ol class="references">
@@ -206,5 +380,15 @@ describe('scanPageForDois', () => {
     const refs = citations.filter((c) => c.context === 'reference');
     expect(current?.doi).toBe('10.1000/current');
     expect(refs.map((c) => c.doi).sort()).toEqual(['10.1234/ref-one', '10.1234/ref-two']);
+  });
+
+  it('keeps a reference even when it repeats the current article DOI', () => {
+    document.head.innerHTML = '<meta name="citation_doi" content="10.1000/current">';
+    document.body.innerHTML = `
+      <ol class="references">
+        <li><a href="https://doi.org/10.1000/current">same DOI in bibliography</a></li>
+      </ol>`;
+    const citations = scanPageForDois(document);
+    expect(citations.filter((c) => c.doi === '10.1000/current')).toHaveLength(2);
   });
 });

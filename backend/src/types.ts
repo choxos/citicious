@@ -26,6 +26,7 @@ export interface RetractionCheckResponse {
 // Citation validation types
 export interface CitationInput {
   doi?: string;
+  pmid?: string;
   title?: string;
   authors?: string[];
   year?: number;

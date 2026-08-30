@@ -9,11 +9,18 @@ const DOI_RESOLVER_URL = 'https://doi.org/api/handles';
 
 // Email for polite pool access (better rate limits)
 const CONTACT_EMAIL = 'choxos@users.noreply.github.com';
-const USER_AGENT = `Citicious/0.1.0 (mailto:${CONTACT_EMAIL})`;
+const USER_AGENT = `Citicious/0.2.0 (mailto:${CONTACT_EMAIL})`;
+const REQUEST_TIMEOUT_MS = 10_000;
 
-// A skip result reused whenever we cannot determine anything.
-const SKIP_RESULT: FullCheckResult = {
-  status: 'skip',
+const NOT_CHECKABLE_RESULT: FullCheckResult = {
+  status: 'not-checkable',
+  isRetracted: false,
+  retractionDetails: null,
+  validation: null,
+};
+
+const FAILED_RESULT: FullCheckResult = {
+  status: 'failed',
   isRetracted: false,
   retractionDetails: null,
   validation: null,
@@ -46,7 +53,10 @@ async function fetchWithRetry(
   options: RequestInit,
   retries = 1
 ): Promise<Response> {
-  const response = await fetch(url, options);
+  const response = await fetch(url, {
+    ...options,
+    signal: options.signal || AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
   if (response.status === 429 && retries > 0) {
     const retryAfter = parseInt(response.headers.get('Retry-After') || '1', 10);
     const waitMs = Math.min(Number.isFinite(retryAfter) ? retryAfter : 1, 5) * 1000;
@@ -170,9 +180,10 @@ async function checkDoiResolver(doi: string): Promise<'exists' | 'not_found' | '
   const normalizedDoi = normalizeDoi(doi);
 
   try {
-    const response = await fetch(`${DOI_RESOLVER_URL}/${encodeDoiPath(normalizedDoi)}`, {
-      headers: { 'Accept': 'application/json' },
-    });
+    const response = await fetchWithRetry(
+      `${DOI_RESOLVER_URL}/${encodeDoiPath(normalizedDoi)}`,
+      { headers: { 'Accept': 'application/json' } }
+    );
 
     if (response.status === 404) return 'not_found';
     if (!response.ok) return 'error';
@@ -417,6 +428,38 @@ function compareMetadata(
   return discrepancies;
 }
 
+export function applyCitationMetadata(
+  result: FullCheckResult,
+  citation: Pick<ExtractedCitation, 'title' | 'authors' | 'year' | 'journal'>
+): FullCheckResult {
+  if (!result.validation?.matchedData) return result;
+
+  const discrepancies = compareMetadata(citation, result.validation.matchedData);
+  let status = result.status;
+  let confidence = result.validation.confidence;
+
+  if (status === 'verified' || status === 'fake-probably') {
+    const criticalTitleMismatch = discrepancies.some(
+      (discrepancy) => discrepancy.field === 'title' && discrepancy.severity === 'critical'
+    );
+    const isLikelyMismatch =
+      criticalTitleMismatch && (citation.title?.trim().length || 0) > 25;
+    status = isLikelyMismatch ? 'fake-probably' : 'verified';
+    confidence = isLikelyMismatch ? 0.4 : 1;
+  }
+
+  return {
+    ...result,
+    status,
+    validation: {
+      ...result.validation,
+      confidence,
+      discrepancies,
+      status,
+    },
+  };
+}
+
 /** A real DOI that resolves but is absent from scholarly databases. */
 function unverifiedResult(doi: string): FullCheckResult {
   return {
@@ -473,8 +516,7 @@ export class CiticiousAPI {
   }): Promise<FullCheckResult> {
     if (citation.doi) return this.checkByDoi(citation);
     if (citation.pmid) return this.checkByPmid(citation);
-    // No identifier we can validate -> skip
-    return SKIP_RESULT;
+    return NOT_CHECKABLE_RESULT;
   }
 
   /**
@@ -488,19 +530,27 @@ export class CiticiousAPI {
     rawCrossrefWork: any,
     openalexWork: any
   ): FullCheckResult {
-    const discrepancies = compareMetadata(citation, matchedData);
-
     // Retraction / concern / correction
     let retraction: { status: RetractionStatus; details: RetractionDetails } | null = null;
     if (rawCrossrefWork) {
       retraction = classifyRetraction(rawCrossrefWork);
     }
-    if (!retraction && openalexWork?.is_retracted) {
+    const updates: unknown[] = Array.isArray(rawCrossrefWork?.['updated-by'])
+      ? rawCrossrefWork['updated-by']
+      : [];
+    const hasReinstatement = updates.some(
+      (update) =>
+        typeof update === 'object' &&
+        update !== null &&
+        'type' in update &&
+        String(update.type || '').toLowerCase().includes('reinstat')
+    );
+    if (retraction?.status !== 'retracted' && openalexWork?.is_retracted && !hasReinstatement) {
       retraction = { status: 'retracted', details: buildOpenAlexRetractionDetails(openalexWork) };
     }
 
     if (retraction) {
-      return {
+      return applyCitationMetadata({
         status: retraction.status,
         isRetracted: retraction.status === 'retracted',
         retractionDetails: retraction.details,
@@ -509,34 +559,13 @@ export class CiticiousAPI {
           confidence: 1.0,
           source,
           matchedData,
-          discrepancies,
+          discrepancies: [],
           status: retraction.status,
         },
-      };
+      }, citation);
     }
 
-    // Conservative metadata-mismatch detection: only flag when a real title was
-    // confidently extracted AND it is critically dissimilar from the record.
-    const criticalTitleMismatch = discrepancies.some(
-      (d) => d.field === 'title' && d.severity === 'critical'
-    );
-    if (criticalTitleMismatch && (citation.title?.trim().length || 0) > 25) {
-      return {
-        status: 'fake-probably',
-        isRetracted: false,
-        retractionDetails: null,
-        validation: {
-          exists: true,
-          confidence: 0.4,
-          source,
-          matchedData,
-          discrepancies,
-          status: 'fake-probably',
-        },
-      };
-    }
-
-    return {
+    return applyCitationMetadata({
       status: 'verified',
       isRetracted: false,
       retractionDetails: null,
@@ -545,10 +574,10 @@ export class CiticiousAPI {
         confidence: 1.0,
         source,
         matchedData,
-        discrepancies,
+        discrepancies: [],
         status: 'verified',
       },
-    };
+    }, citation);
   }
 
   /**
@@ -561,9 +590,12 @@ export class CiticiousAPI {
     year?: number;
     journal?: string;
   }): Promise<FullCheckResult> {
-    if (!citation.doi) return SKIP_RESULT;
+    if (!citation.doi) return NOT_CHECKABLE_RESULT;
 
-    const crossrefResult = await checkCrossRef(citation.doi);
+    const [crossrefResult, openalexResult] = await Promise.all([
+      checkCrossRef(citation.doi),
+      checkOpenAlex(citation.doi),
+    ]);
 
     if (crossrefResult.status === 'found') {
       return this.buildResultFromMatch(
@@ -571,12 +603,9 @@ export class CiticiousAPI {
         crossrefToMatchedData(crossrefResult.work),
         'crossref',
         crossrefResult.work,
-        null
+        openalexResult.status === 'found' ? openalexResult.work : null
       );
     }
-
-    // CrossRef did not return the work -> try OpenAlex
-    const openalexResult = await checkOpenAlex(citation.doi);
 
     if (openalexResult.status === 'found') {
       return this.buildResultFromMatch(
@@ -591,7 +620,7 @@ export class CiticiousAPI {
     // Neither scholarly DB has it. If both were merely ambiguous (errors), we
     // cannot conclude anything.
     if (crossrefResult.status === 'error' && openalexResult.status === 'error') {
-      return SKIP_RESULT;
+      return FAILED_RESULT;
     }
 
     // At least one DB definitively reported the DOI as not found. Consult the
@@ -604,8 +633,7 @@ export class CiticiousAPI {
     if (resolver === 'not_found') {
       return fakeLikelyResult(citation.doi);
     }
-    // Resolver itself was unreachable -> don't accuse, skip.
-    return SKIP_RESULT;
+    return FAILED_RESULT;
   }
 
   /**
@@ -620,12 +648,30 @@ export class CiticiousAPI {
     year?: number;
     journal?: string;
   }): Promise<FullCheckResult> {
-    if (!citation.pmid) return SKIP_RESULT;
+    if (!citation.pmid) return NOT_CHECKABLE_RESULT;
 
     const result = await checkOpenAlexByPmid(citation.pmid);
-    if (result.status !== 'found') {
-      // not_found / error: cannot conclude (OpenAlex isn't authoritative for PMIDs)
-      return SKIP_RESULT;
+    if (result.status === 'error') return FAILED_RESULT;
+    if (result.status === 'not_found') {
+      return {
+        status: 'unverified',
+        isRetracted: false,
+        retractionDetails: null,
+        validation: {
+          exists: false,
+          confidence: 0,
+          source: 'openalex',
+          discrepancies: [
+            {
+              field: 'pmid',
+              provided: citation.pmid,
+              actual: 'Not indexed in OpenAlex',
+              severity: 'minor',
+            },
+          ],
+          status: 'unverified',
+        },
+      };
     }
 
     const work = result.work;

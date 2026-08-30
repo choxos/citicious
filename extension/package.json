@@ -1,6 +1,6 @@
 {
   "name": "citicious-extension",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Chrome extension to detect retracted and fake scientific citations",
   "scripts": {
     "dev": "webpack --mode development --watch",
@@ -8,19 +8,25 @@
     "clean": "rm -rf dist",
     "test": "vitest run",
     "test:watch": "vitest",
-    "package": "npm run build && rm -f citicious-extension-v${npm_package_version}.zip && cd dist && zip -rX ../citicious-extension-v${npm_package_version}.zip . -x '.DS_Store' -x '*/.DS_Store'"
+    "package": "npm run build && npm run package:normalize && npm run package:zip && npm run package:tar",
+    "package:normalize": "find dist -exec touch -t 198001010000 {} +",
+    "package:zip": "rm -f citicious-extension-v${npm_package_version}.zip && cd dist && zip -rX ../citicious-extension-v${npm_package_version}.zip . -x '.DS_Store' -x '*/.DS_Store'",
+    "package:tar": "rm -f citicious-extension-v${npm_package_version}.tar citicious-extension-v${npm_package_version}.tar.gz && COPYFILE_DISABLE=1 tar -cf citicious-extension-v${npm_package_version}.tar -C dist . && gzip -n -f citicious-extension-v${npm_package_version}.tar"
   },
   "devDependencies": {
-    "@types/chrome": "^0.0.270",
-    "copy-webpack-plugin": "^12.0.2",
-    "css-loader": "^7.1.2",
-    "jsdom": "^25.0.1",
-    "mini-css-extract-plugin": "^2.9.1",
-    "ts-loader": "^9.5.1",
-    "typescript": "^5.5.0",
-    "vitest": "^2.1.8",
-    "webpack": "^5.94.0",
-    "webpack-cli": "^5.1.4"
+    "@types/chrome": "^0.2.7",
+    "copy-webpack-plugin": "^14.0.0",
+    "css-loader": "^7.1.5",
+    "jsdom": "^30.0.1",
+    "mini-css-extract-plugin": "^2.10.2",
+    "ts-loader": "^9.6.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11",
+    "webpack": "^5.110.1",
+    "webpack-cli": "^7.2.3"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "engines": {
+    "node": ">=24.15.0"
+  }
 }

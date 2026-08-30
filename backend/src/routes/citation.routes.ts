@@ -13,6 +13,7 @@ export async function citationRoutes(app: FastifyInstance) {
           type: 'object',
           properties: {
             doi: { type: 'string' },
+            pmid: { type: 'string' },
             title: { type: 'string' },
             authors: { type: 'array', items: { type: 'string' } },
             year: { type: 'number' },
@@ -27,7 +28,7 @@ export async function citationRoutes(app: FastifyInstance) {
               confidence: { type: 'number' },
               source: { type: 'string' },
               status: { type: 'string' },
-              matchedData: { type: 'object' },
+              matchedData: { type: 'object', additionalProperties: true },
               discrepancies: {
                 type: 'array',
                 items: {
@@ -48,9 +49,9 @@ export async function citationRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const citation = request.body;
 
-      if (!citation.doi && !citation.title) {
+      if (!citation.doi && !citation.pmid && !citation.title) {
         return reply.status(400).send({
-          error: 'Either doi or title must be provided',
+          error: 'A DOI, PMID, or title must be provided',
         });
       }
 
@@ -80,16 +81,16 @@ export async function citationRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const citation = request.body;
 
-      if (!citation.doi && !citation.title) {
+      if (!citation.doi && !citation.pmid && !citation.title) {
         return reply.status(400).send({
-          error: 'Either doi or title must be provided',
+          error: 'A DOI, PMID, or title must be provided',
         });
       }
 
       // Check for retraction first
       const retractionResult = await retractionService.check(
         citation.doi,
-        (citation as any).pmid
+        citation.pmid
       );
 
       if (retractionResult.isRetracted) {
@@ -156,46 +157,49 @@ export async function citationRoutes(app: FastifyInstance) {
         });
       }
 
-      const results = await Promise.all(
-        items.map(async (citation) => {
-          // Check retraction first
-          const retractionResult = await retractionService.check(
-            citation.doi,
-            (citation as any).pmid
-          );
+      const results: Record<string, unknown>[] = [];
+      const batchSize = 10;
+      for (let i = 0; i < items.length; i += batchSize) {
+        const batchResults = await Promise.all(
+          items.slice(i, i + batchSize).map(async (citation) => {
+            const retractionResult = await retractionService.check(
+              citation.doi,
+              citation.pmid
+            );
 
-          if (retractionResult.isRetracted) {
-            return {
-              input: { doi: citation.doi, title: citation.title },
-              status: 'retracted' as const,
-              isRetracted: true,
-              retractionDetails: retractionResult.details,
-              validation: null,
-            };
-          }
+            if (retractionResult.isRetracted) {
+              return {
+                input: { doi: citation.doi, pmid: citation.pmid, title: citation.title },
+                status: 'retracted' as const,
+                isRetracted: true,
+                retractionDetails: retractionResult.details,
+                validation: null,
+              };
+            }
 
-          // Then validate
-          if (citation.doi || citation.title) {
-            const validationResult =
-              await citationValidatorService.validate(citation);
+            if (citation.doi || citation.pmid || citation.title) {
+              const validationResult =
+                await citationValidatorService.validate(citation);
+              return {
+                input: { doi: citation.doi, pmid: citation.pmid, title: citation.title },
+                status: validationResult.status,
+                isRetracted: false,
+                retractionDetails: null,
+                validation: validationResult,
+              };
+            }
+
             return {
-              input: { doi: citation.doi, title: citation.title },
-              status: validationResult.status,
+              input: { doi: citation.doi, pmid: citation.pmid, title: citation.title },
+              status: 'unknown' as const,
               isRetracted: false,
               retractionDetails: null,
-              validation: validationResult,
+              validation: null,
             };
-          }
-
-          return {
-            input: { doi: citation.doi, title: citation.title },
-            status: 'unknown' as const,
-            isRetracted: false,
-            retractionDetails: null,
-            validation: null,
-          };
-        })
-      );
+          })
+        );
+        results.push(...batchResults);
+      }
 
       return { results };
     }

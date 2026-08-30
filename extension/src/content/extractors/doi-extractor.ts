@@ -2,11 +2,12 @@ import type { ExtractedCitation } from '../../shared/types';
 
 // DOI regex patterns based on CrossRef recommendations
 // Primary pattern: matches 97%+ of DOIs
-const DOI_REGEX = /\b(10\.\d{4,9}\/[^\s"'<>]+)\b/gi;
+const DOI_REGEX = /\b(10\.\d{4,9}\/[^\s"'<>]+)\b/i;
 
 // PubMed ID patterns (inline "PMID: n" text and pubmed.ncbi.nlm.nih.gov links)
-const PMID_REGEX = /\bPMID:\s*(\d+)\b/gi;
+const PMID_REGEX = /\bPMID:\s*(\d+)\b/i;
 const PMID_URL_REGEX = /pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/i;
+export const MAX_REFERENCES_PER_PAGE = 500;
 
 /**
  * Generate unique ID for a citation
@@ -237,40 +238,91 @@ function findReferenceListByContent(document: Document): HTMLElement | null {
   const MIN_REFERENCE_ITEMS = 3;
   const EXCLUDED_ANCESTORS = 'aside, nav, header, footer, [role="complementary"], [role="navigation"]';
   const EXCLUDED_HINT = /recommend|related|sidebar|promo|advert|cited-by|citedby|metrics|toc|menu/i;
+  const CONTAINER_SELECTOR = 'ol, ul, section, div, dl';
+  const ENTRY_SELECTOR = 'li, dd, p, div, tr';
 
   const root = (document.querySelector('main, article') || document.body) as HTMLElement | null;
   if (!root) return null;
 
   let best: { element: HTMLElement; items: number; size: number } | null = null;
+  const stack: Array<{
+    element: HTMLElement;
+    matchesEntry: boolean;
+    hasDescendantEntry: boolean;
+    identifierItems: number;
+    textSize: number;
+    excluded: boolean;
+  }> = [];
+  let current = root.firstElementChild as HTMLElement | null;
 
-  for (const candidate of root.querySelectorAll<HTMLElement>('ol, ul, section, div, dl')) {
-    if (candidate.closest(EXCLUDED_ANCESTORS)) continue;
-    const hint = `${candidate.id} ${candidate.className}`;
-    if (typeof candidate.className === 'string' && EXCLUDED_HINT.test(hint)) continue;
+  while (current) {
+    const parent = stack[stack.length - 1];
+    const className = typeof current.className === 'string' ? current.className : '';
+    const hint = `${current.id} ${className}`;
+    let textSize = 0;
+    for (const child of current.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE) textSize += child.textContent?.length || 0;
+    }
+    stack.push({
+      element: current,
+      matchesEntry: current.matches(ENTRY_SELECTOR),
+      hasDescendantEntry: false,
+      identifierItems: 0,
+      textSize,
+      excluded:
+        (parent?.excluded || false) ||
+        current.matches(EXCLUDED_ANCESTORS) ||
+        EXCLUDED_HINT.test(hint),
+    });
 
-    const entries = candidate.querySelectorAll<HTMLElement>('li, dd, p, div, tr');
-    let items = 0;
-    for (const entry of entries) {
-      const text = entry.textContent || '';
-      const hasIdentifier =
-        /\b10\.\d{4,9}\//.test(text) ||
-        PMID_REGEX.test(text) ||
-        entry.querySelector('a[href*="doi.org"], a[href*="pubmed.ncbi.nlm.nih.gov"]') !== null;
-      PMID_REGEX.lastIndex = 0;
-      // Count only the entries that directly hold an identifier, not their
-      // ancestors, so a wrapper does not inherit its children's score.
-      if (hasIdentifier && !entry.querySelector('li, dd, tr')) {
-        items++;
-      }
+    const child = current.firstElementChild as HTMLElement | null;
+    if (child) {
+      current = child;
+      continue;
     }
 
-    if (items < MIN_REFERENCE_ITEMS) continue;
+    current = null;
+    while (stack.length > 0) {
+      const completed = stack.pop()!;
+      if (completed.matchesEntry && !completed.hasDescendantEntry) {
+        const text = completed.element.textContent || '';
+        const hasIdentifier =
+          /\b10\.\d{4,9}\//.test(text) ||
+          PMID_REGEX.test(text) ||
+          completed.element.querySelector(
+            'a[href*="doi.org"], a[href*="pubmed.ncbi.nlm.nih.gov"]'
+          ) !== null;
+        if (hasIdentifier) completed.identifierItems++;
+      }
 
-    const size = (candidate.textContent || '').length;
-    // Most identifier-bearing entries wins; ties go to the tightest container,
-    // which keeps the result off <main> and on the actual list
-    if (!best || items > best.items || (items === best.items && size < best.size)) {
-      best = { element: candidate, items, size };
+      if (
+        !completed.excluded &&
+        completed.element.matches(CONTAINER_SELECTOR) &&
+        completed.identifierItems >= MIN_REFERENCE_ITEMS &&
+        (!best ||
+          completed.identifierItems > best.items ||
+          (completed.identifierItems === best.items && completed.textSize < best.size))
+      ) {
+        best = {
+          element: completed.element,
+          items: completed.identifierItems,
+          size: completed.textSize,
+        };
+      }
+
+      const ancestor = stack[stack.length - 1];
+      if (ancestor && !completed.excluded) {
+        ancestor.identifierItems += completed.identifierItems;
+        ancestor.textSize += completed.textSize;
+        ancestor.hasDescendantEntry ||=
+          completed.matchesEntry || completed.hasDescendantEntry;
+      }
+
+      const sibling = completed.element.nextElementSibling as HTMLElement | null;
+      if (sibling) {
+        current = sibling;
+        break;
+      }
     }
   }
 
@@ -313,150 +365,136 @@ function extractTitleFromReference(element: HTMLElement): string | undefined {
 /**
  * Extract DOIs and URLs from the reference section
  */
-export function extractReferenceDois(
-  referenceSection: HTMLElement
-): ExtractedCitation[] {
-  const citations: ExtractedCitation[] = [];
-  const seenDois = new Set<string>();
+function findLeafReferenceElements(
+  referenceSection: HTMLElement,
+  selector: string,
+  limit: number
+): HTMLElement[] {
+  const elements: HTMLElement[] = [];
+  const stack: Array<{
+    element: HTMLElement;
+    matches: boolean;
+    hasMatchingDescendant: boolean;
+  }> = [];
+  let current = referenceSection.firstElementChild as HTMLElement | null;
 
-  // Method 1: Find links to doi.org
-  const doiLinks = referenceSection.querySelectorAll('a[href*="doi.org"]');
-  for (const link of doiLinks) {
-    const candidate = doiFromUrl((link as HTMLAnchorElement).href);
-    if (candidate) {
-      const doi = normalizeDoi(candidate);
-      if (isValidDoi(doi) && !seenDois.has(doi)) {
-        seenDois.add(doi);
-        // Prefer the whole list item so highlights and badges attach to the
-        // full reference, not just the publisher's link row inside it
-        const refElement =
-          (link.closest('li') as HTMLElement) ||
-          (link.closest('p, div, tr') as HTMLElement) ||
-          (link as HTMLElement);
-        citations.push({
-          id: generateId(),
-          doi,
-          title: extractTitleFromReference(refElement),
-          context: 'reference',
-          element: refElement,
-        });
-      }
-    }
-  }
-
-  // Method 2: Find DOIs in text
-  const walker = document.createTreeWalker(
-    referenceSection,
-    NodeFilter.SHOW_TEXT,
-    null
-  );
-
-  let node: Text | null;
-  while ((node = walker.nextNode() as Text | null)) {
-    const text = node.textContent || '';
-    const doiMatches = text.matchAll(DOI_REGEX);
-
-    for (const match of doiMatches) {
-      const doi = normalizeDoi(match[1]);
-      if (isValidDoi(doi) && !seenDois.has(doi)) {
-        seenDois.add(doi);
-        const parentElement = (node.parentElement?.closest('li') ||
-          node.parentElement?.closest('p, div, tr')) as HTMLElement;
-        if (parentElement) {
-          citations.push({
-            id: generateId(),
-            doi,
-            title: extractTitleFromReference(parentElement),
-            context: 'reference',
-            element: parentElement,
-          });
-        }
-      }
-    }
-  }
-
-  // Shared for both PMID methods: attach the PMID to an existing citation for
-  // the same reference element, or create a PMID-only citation.
-  const seenPmids = new Set(citations.map((c) => c.pmid).filter(Boolean));
-  const addPmid = (pmid: string, el: HTMLElement) => {
-    if (seenPmids.has(pmid)) return;
-    const existing = citations.find(
-      (c) => c.element === el || c.element.contains(el) || el.contains(c.element)
-    );
-    if (existing) {
-      if (!existing.pmid) {
-        existing.pmid = pmid;
-        seenPmids.add(pmid);
-      }
-      return;
-    }
-    seenPmids.add(pmid);
-    citations.push({
-      id: generateId(),
-      pmid,
-      title: extractTitleFromReference(el),
-      context: 'reference',
-      element: el,
+  while (current) {
+    stack.push({
+      element: current,
+      matches: current.matches(selector),
+      hasMatchingDescendant: false,
     });
-  };
 
-  // Method 3: Find PubMed IDs written as "PMID: n" text
-  const pmidMatches = referenceSection.innerHTML.matchAll(PMID_REGEX);
-  for (const match of pmidMatches) {
-    const pmid = match[1];
-    // Find the element containing this PMID
-    const elements = referenceSection.querySelectorAll('li, p, div, tr');
-    for (const el of elements) {
-      if (el.textContent?.includes(`PMID: ${pmid}`) || el.textContent?.includes(`PMID:${pmid}`)) {
-        addPmid(pmid, el as HTMLElement);
+    const child = current.firstElementChild as HTMLElement | null;
+    if (child) {
+      current = child;
+      continue;
+    }
+
+    current = null;
+    while (stack.length > 0) {
+      const completed = stack.pop()!;
+      const subtreeMatched = completed.matches || completed.hasMatchingDescendant;
+      if (
+        completed.matches &&
+        !completed.hasMatchingDescendant &&
+        (completed.element.textContent || '').trim()
+      ) {
+        elements.push(completed.element);
+        if (elements.length >= limit) return elements;
+      }
+      if (stack.length > 0 && subtreeMatched) {
+        stack[stack.length - 1].hasMatchingDescendant = true;
+      }
+      const sibling = completed.element.nextElementSibling as HTMLElement | null;
+      if (sibling) {
+        current = sibling;
         break;
       }
     }
   }
 
-  // Method 4: Find PubMed IDs linked via pubmed.ncbi.nlm.nih.gov URLs
-  const pubmedLinks = referenceSection.querySelectorAll('a[href*="pubmed.ncbi.nlm.nih.gov"]');
-  for (const link of pubmedLinks) {
-    const match = (link as HTMLAnchorElement).href.match(PMID_URL_REGEX);
-    if (match) {
-      const refElement =
-        (link.closest('li') as HTMLElement) ||
-        (link.closest('p, div, tr') as HTMLElement) ||
-        (link as HTMLElement);
-      addPmid(match[1], refElement);
+  return elements;
+}
+
+export function extractReferenceDois(
+  referenceSection: HTMLElement,
+  limit = MAX_REFERENCES_PER_PAGE
+): ExtractedCitation[] {
+  const selectorGroups = [
+    'li, [role="doc-biblioentry"], [role="listitem"]',
+    'dd',
+    'tr',
+    '.references__item, .reference-list__item, .ref-list__item, .c-article-references__item, [data-reference-id]',
+    '.reference, .ref, .citation',
+    'p',
+  ];
+
+  const boundedLimit = Math.max(
+    0,
+    Math.min(
+      Number.isFinite(limit) ? Math.floor(limit) : MAX_REFERENCES_PER_PAGE + 1,
+      MAX_REFERENCES_PER_PAGE + 1
+    )
+  );
+  if (boundedLimit === 0) return [];
+
+  let elements: HTMLElement[] = [];
+  for (const selector of selectorGroups) {
+    const matches = findLeafReferenceElements(referenceSection, selector, boundedLimit);
+    if (matches.length > 0) {
+      elements = matches;
+      break;
     }
   }
 
-  return citations;
+  if (elements.length === 0 && (referenceSection.textContent || '').trim()) {
+    elements = [referenceSection];
+  }
+
+  return elements.map((element) => {
+    const textElement = element.cloneNode(true) as HTMLElement;
+    textElement.querySelectorAll('.citicious-badge, .citicious-banner').forEach((node) => node.remove());
+    const text = (textElement.textContent || '').replace(/\s+/g, ' ').trim();
+    const doiLink = element.querySelector<HTMLAnchorElement>('a[href*="doi.org"]');
+    const rawDoi = (doiLink ? doiFromUrl(doiLink.href) : null) || text.match(DOI_REGEX)?.[1];
+    const normalizedDoi = rawDoi ? normalizeDoi(rawDoi) : undefined;
+    const pmidLink = element.querySelector<HTMLAnchorElement>(
+      'a[href*="pubmed.ncbi.nlm.nih.gov"]'
+    );
+    const pmid = pmidLink?.href.match(PMID_URL_REGEX)?.[1] || text.match(PMID_REGEX)?.[1];
+
+    return {
+      id: generateId(),
+      doi: normalizedDoi && isValidDoi(normalizedDoi) ? normalizedDoi : undefined,
+      pmid,
+      title: extractTitleFromReference(element),
+      referenceText: text.slice(0, 500),
+      context: 'reference' as const,
+      element,
+    };
+  });
 }
 
 /**
  * Scan the entire page for DOIs
  */
-export function scanPageForDois(document: Document): ExtractedCitation[] {
+export function scanPageForDois(
+  document: Document,
+  referenceLimit = MAX_REFERENCES_PER_PAGE
+): ExtractedCitation[] {
   const citations: ExtractedCitation[] = [];
-  const seenDois = new Set<string>();
 
   // Get current article DOI
   const currentArticle = extractCurrentArticleDoi(document);
   if (currentArticle?.doi) {
-    seenDois.add(currentArticle.doi);
     citations.push(currentArticle);
   }
 
   // Find and scan reference section
   const referenceSection = findReferenceSection(document);
   if (referenceSection) {
-    const referenceCitations = extractReferenceDois(referenceSection);
-    for (const citation of referenceCitations) {
-      if (citation.doi && !seenDois.has(citation.doi)) {
-        seenDois.add(citation.doi);
-        citations.push(citation);
-      } else if (citation.pmid) {
-        // Include PMID-only citations
-        citations.push(citation);
-      }
-    }
+    citations.push(...extractReferenceDois(referenceSection, referenceLimit));
   }
 
   return citations;

@@ -216,6 +216,16 @@ describe('checkCitation by DOI', () => {
     expect(result.isRetracted).toBe(true);
   });
 
+  it('uses OpenAlex retraction data when CrossRef finds 10.1155/2024/9819574', async () => {
+    installFetch({
+      crossref: crossrefWork(),
+      openalexDoi: openalexWork({ is_retracted: true }),
+    });
+    const result = await citiciousAPI.checkCitation({ doi: '10.1155/2024/9819574' });
+    expect(result.status).toBe('retracted');
+    expect(result.isRetracted).toBe(true);
+  });
+
   it('marks a DOI absent from both DBs but resolvable as unverified (NOT fake)', async () => {
     installFetch({
       crossref: mockResponse(404, {}),
@@ -237,13 +247,26 @@ describe('checkCitation by DOI', () => {
     expect(result.status).toBe('fake-likely');
   });
 
-  it('does not call something fake when both scholarly DBs error out', async () => {
+  it('reports a failed check when both scholarly DBs error out', async () => {
     installFetch({
       crossref: mockResponse(500, {}),
       openalexDoi: mockResponse(500, {}),
     });
     const result = await citiciousAPI.checkCitation({ doi: '10.1234/example' });
-    expect(result.status).toBe('skip');
+    expect(result.status).toBe('failed');
+  });
+
+  it('applies a timeout signal to every external lookup', async () => {
+    installFetch({
+      crossref: mockResponse(404, {}),
+      openalexDoi: mockResponse(404, {}),
+      resolver: resolverExists,
+    });
+    await citiciousAPI.checkCitation({ doi: '10.5281/zenodo.123456' });
+
+    for (const [, init] of vi.mocked(fetch).mock.calls) {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+    }
   });
 
   it('flags fake-probably only on a critical title mismatch with a real provided title', async () => {
@@ -276,17 +299,18 @@ describe('checkCitation by PMID', () => {
     expect(result.status).toBe('verified');
   });
 
-  it('does not flag a PMID miss as fake (OpenAlex is not authoritative for PMIDs)', async () => {
+  it('reports a PMID miss as not verified rather than fake', async () => {
     installFetch({ openalexPmid: mockResponse(404, {}) });
     const result = await citiciousAPI.checkCitation({ pmid: '99999999' });
-    expect(result.status).toBe('skip');
+    expect(result.status).toBe('unverified');
+    expect(result.validation?.exists).toBe(false);
   });
 });
 
 describe('checkCitation with no identifier', () => {
-  it('skips when neither DOI nor PMID is present', async () => {
+  it('marks a citation without DOI or PMID as not checkable', async () => {
     installFetch({});
     const result = await citiciousAPI.checkCitation({ title: 'Some title' });
-    expect(result.status).toBe('skip');
+    expect(result.status).toBe('not-checkable');
   });
 });
