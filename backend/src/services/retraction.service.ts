@@ -29,6 +29,10 @@ interface CrossRefWork {
   'updated-by'?: unknown;
 }
 
+interface CrossRefCheckResponse extends RetractionCheckResponse {
+  isReinstated?: boolean;
+}
+
 function normalizedUpdateType(update: CrossRefUpdate): string {
   return String(update.type || '').toLowerCase().replace(/_/g, '-');
 }
@@ -60,7 +64,7 @@ export class RetractionService {
     return doi.toLowerCase().trim().replace(/^https?:\/\/doi\.org\//i, '');
   }
 
-  async checkViaCrossRefApi(doi: string): Promise<RetractionCheckResponse> {
+  async checkViaCrossRefApi(doi: string): Promise<CrossRefCheckResponse> {
     const normalizedDoi = this.normalizeDoi(doi);
 
     try {
@@ -179,6 +183,10 @@ export class RetractionService {
         };
       }
 
+      if (reinstatedAt > 0) {
+        return { isRetracted: false, isReinstated: true };
+      }
+
       return { isRetracted: false };
     } catch (error) {
       console.error(`CrossRef API check failed for ${doi}:`, error);
@@ -217,10 +225,10 @@ export class RetractionService {
    * Check if a DOI corresponds to a retracted article
    * Uses CrossRef API first (includes Retraction Watch data), falls back to local DB
    */
-  async checkByDoi(doi: string): Promise<RetractionCheckResponse> {
+  async checkByDoi(doi: string): Promise<CrossRefCheckResponse> {
     // Primary: CrossRef API (includes Retraction Watch data)
     const apiResult = await this.checkViaCrossRefApi(doi);
-    if (apiResult.status) {
+    if (apiResult.status || apiResult.isReinstated) {
       return apiResult;
     }
 
@@ -258,7 +266,7 @@ export class RetractionService {
   async check(doi?: string, pmid?: string): Promise<RetractionCheckResponse> {
     if (doi) {
       const result = await this.checkByDoi(doi);
-      if (result.status) return result;
+      if (result.status || result.isReinstated) return result;
     }
 
     if (pmid) {

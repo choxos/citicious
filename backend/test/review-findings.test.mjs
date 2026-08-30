@@ -45,15 +45,31 @@ test('automated-review citation states stay distinct and order-independent', asy
       assert.deepEqual(concernFirst, retractionFirst);
     });
 
-    await t.test('does not report a retraction superseded by a later reinstatement', async () => {
+    await t.test('does not resurrect a reinstated paper from stale local history', async () => {
       globalThis.fetch = async () => crossrefResponse([
         update('retraction', '2023-01-01T00:00:00Z'),
         update('reinstatement', '2024-01-01T00:00:00Z'),
       ]);
+      const originalLocalCheck = retractions.checkByDoiLocal;
+      let localChecked = false;
+      retractions.checkByDoiLocal = async () => {
+        localChecked = true;
+        return { isRetracted: true, status: 'retracted' };
+      };
 
-      const result = await retractions.checkViaCrossRefApi('10.1234/article');
-      assert.equal(result.status, undefined);
-      assert.equal(result.isRetracted, false);
+      try {
+        const result = await retractions.checkByDoi('10.1234/article');
+        assert.equal(result.status, undefined);
+        assert.equal(result.isRetracted, false);
+        assert.equal(localChecked, false);
+
+        globalThis.fetch = async () => crossrefResponse([]);
+        const noCrossrefSignal = await retractions.checkByDoi('10.1234/article');
+        assert.equal(noCrossrefSignal.status, 'retracted');
+        assert.equal(localChecked, true);
+      } finally {
+        retractions.checkByDoiLocal = originalLocalCheck;
+      }
     });
 
     await t.test('preserves expression-of-concern status through the full route', async () => {
