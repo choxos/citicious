@@ -28,6 +28,21 @@ function update(type, date, doi = `10.1234/${type}`) {
   return { type, DOI: doi, updated: { 'date-time': date } };
 }
 
+function openalexResponse({ doi = '10.1234/article', isRetracted = false } = {}) {
+  return new Response(JSON.stringify({
+    doi: doi ? `https://doi.org/${doi}` : null,
+    title: 'Reviewed article',
+    authorships: [{ author: { display_name: 'Ada Lovelace' } }],
+    publication_year: 2020,
+    primary_location: { source: { display_name: 'Test Journal' } },
+    id: 'https://openalex.org/W123',
+    is_retracted: isRetracted,
+  }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 test('automated-review citation states stay distinct and order-independent', async (t) => {
   const originalFetch = globalThis.fetch;
   const retractions = new RetractionService();
@@ -139,6 +154,47 @@ test('automated-review citation states stay distinct and order-independent', asy
       assert.equal(missing.status, 'unverified');
       assert.equal(missing.source, 'openalex');
       assert.equal(unavailable.status, 'skip');
+    });
+
+    await t.test('preserves retraction evidence discovered through a PMID', async () => {
+      const originalPmidCheck = retractionService.checkByPmid;
+      const originalDoiCheck = retractionService.checkByDoi;
+      const app = Fastify();
+      await app.register(citationRoutes);
+
+      try {
+        retractionService.checkByPmid = async () => ({ isRetracted: false });
+        retractionService.checkByDoi = async () => ({ isRetracted: false });
+        globalThis.fetch = async () => openalexResponse({ doi: '', isRetracted: true });
+
+        const openalexFlag = await app.inject({
+          method: 'POST',
+          url: '/check/full',
+          payload: { pmid: '12345678' },
+        });
+        assert.equal(openalexFlag.statusCode, 200);
+        assert.equal(openalexFlag.json().status, 'retracted');
+        assert.equal(openalexFlag.json().isRetracted, true);
+
+        retractionService.checkByDoi = async (doi) => {
+          assert.equal(doi, '10.1234/article');
+          return { isRetracted: true, status: 'retracted' };
+        };
+        globalThis.fetch = async () => openalexResponse();
+
+        const linkedDoi = await app.inject({
+          method: 'POST',
+          url: '/check/full',
+          payload: { pmid: '12345678' },
+        });
+        assert.equal(linkedDoi.statusCode, 200);
+        assert.equal(linkedDoi.json().status, 'retracted');
+        assert.equal(linkedDoi.json().isRetracted, true);
+      } finally {
+        retractionService.checkByPmid = originalPmidCheck;
+        retractionService.checkByDoi = originalDoiCheck;
+        await app.close();
+      }
     });
   } finally {
     globalThis.fetch = originalFetch;

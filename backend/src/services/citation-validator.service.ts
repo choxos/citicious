@@ -1,6 +1,7 @@
 import { stringSimilarity } from 'string-similarity-js';
 import { crossrefService } from './crossref.service.js';
 import { openalexService } from './openalex.service.js';
+import { retractionService } from './retraction.service.js';
 import type {
   CitationInput,
   CitationValidationResponse,
@@ -33,13 +34,22 @@ export class CitationValidatorService {
 
     if (openalexResult.status === 'found') {
       const matchedData = this.openalexToMatchedData(openalexResult.work);
+      const doiRetraction = openalexResult.work.doi
+        ? await retractionService.checkByDoi(openalexResult.work.doi)
+        : undefined;
+      const status: CitationStatus = doiRetraction?.isReinstated
+        ? 'verified'
+        : doiRetraction?.status === 'retracted' || openalexResult.work.isRetracted
+          ? 'retracted'
+          : doiRetraction?.status || 'verified';
+
       return {
         exists: true,
         confidence: 1,
         source: 'openalex',
         matchedData,
         discrepancies: this.compareMetadata(citation, matchedData),
-        status: 'verified',
+        status,
       };
     }
 

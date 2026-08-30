@@ -13,6 +13,7 @@ interface OpenAlexApiWork {
   primary_location?: { source?: { display_name?: string } };
   id: string;
   cited_by_count?: number;
+  is_retracted?: boolean;
 }
 
 export class OpenAlexService {
@@ -164,6 +165,7 @@ export class OpenAlexService {
       journal: work.primary_location?.source?.display_name || '',
       openAlexId: work.id,
       citedByCount: work.cited_by_count,
+      isRetracted: work.is_retracted,
     };
   }
 }

@@ -114,6 +114,7 @@ export interface OpenAlexWork {
   journal: string;
   openAlexId: string;
   citedByCount?: number;
+  isRetracted?: boolean;
 }
 
 // OpenAlex lookup result - distinguishes found/not_found/error

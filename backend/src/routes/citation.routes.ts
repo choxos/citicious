@@ -107,7 +107,7 @@ export async function citationRoutes(app: FastifyInstance) {
 
       return {
         status: validationResult.status,
-        isRetracted: false,
+        isRetracted: validationResult.status === 'retracted',
         retractionDetails: null,
         validation: validationResult,
       };
@@ -183,7 +183,7 @@ export async function citationRoutes(app: FastifyInstance) {
               return {
                 input: { doi: citation.doi, pmid: citation.pmid, title: citation.title },
                 status: validationResult.status,
-                isRetracted: false,
+                isRetracted: validationResult.status === 'retracted',
                 retractionDetails: null,
                 validation: validationResult,
               };
