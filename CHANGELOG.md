@@ -23,6 +23,7 @@ All notable changes to Citicious are documented in this file.
 - Recognized bibliography entries are no longer silently omitted when they lack a supported identifier, including on SAGE journal pages.
 - DOI existence checks now fall back to the DOI resolver before a citation can be labeled not found.
 - Lazy and single-page application updates now trigger a bounded rescan without duplicating active work.
+- Side-panel status updates now stay scoped to the active tab, including after tab switches.
 
 ### Security
 

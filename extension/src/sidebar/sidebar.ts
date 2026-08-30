@@ -25,6 +25,7 @@ interface PageStatus {
 }
 
 let currentTabId: number | null = null;
+let currentWindowId: number | null = null;
 
 /**
  * Initialize sidebar
@@ -34,11 +35,13 @@ async function init() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab?.id) {
     currentTabId = tab.id;
+    currentWindowId = tab.windowId;
     await loadPageStatus();
   }
 
   // Listen for updates
   chrome.runtime.onMessage.addListener(handleMessage);
+  chrome.tabs.onActivated.addListener(handleTabActivated);
 }
 
 /**
@@ -46,26 +49,42 @@ async function init() {
  */
 async function loadPageStatus() {
   if (!currentTabId) return;
+  const tabId = currentTabId;
 
   try {
-    const response = await chrome.tabs.sendMessage(currentTabId, {
+    const response = await chrome.tabs.sendMessage(tabId, {
       type: 'GET_PAGE_STATUS',
     });
 
-    if (response) {
+    if (response && tabId === currentTabId) {
       renderPageStatus(response);
     }
   } catch (error) {
     // Content script not loaded or page not relevant
-    showEmptyState('This page does not contain academic content.');
+    if (tabId === currentTabId) {
+      showEmptyState('This page does not contain academic content.');
+    }
   }
+}
+
+function handleTabActivated({ tabId, windowId }: chrome.tabs.OnActivatedInfo) {
+  if (windowId !== currentWindowId) return;
+  currentTabId = tabId;
+  void loadPageStatus();
 }
 
 /**
  * Handle messages from content script
  */
-function handleMessage(message: any) {
-  if (message.type === 'UPDATE_PAGE_STATUS') {
+function handleMessage(
+  message: { type?: string; payload?: PageStatus },
+  sender: chrome.runtime.MessageSender
+) {
+  if (
+    message.type === 'UPDATE_PAGE_STATUS' &&
+    sender.tab?.id === currentTabId &&
+    message.payload
+  ) {
     renderPageStatus(message.payload);
   }
 }
