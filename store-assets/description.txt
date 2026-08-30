@@ -1,6 +1,6 @@
 Citicious checks the science you are reading, while you read it.
 
-Open a paper and Citicious quietly verifies the article itself and every reference in its bibliography against the public scholarly record. If something is wrong, you see it immediately, in place, without leaving the page.
+Open a paper and Citicious checks the article itself and up to 500 structured bibliography entries it can recognize. References with a DOI or PubMed ID are checked against the public scholarly record; entries without either identifier are shown as "Not checked" instead of disappearing from the count. The coverage display discloses when additional recognized entries were "Not scanned."
 
 WHAT IT CATCHES
 
@@ -14,19 +14,19 @@ Citation details that do not match the published record. When a reference's titl
 
 HOW IT WORKS
 
-Citicious reads the identifiers already printed on the page (DOIs and PubMed IDs) and validates them against CrossRef and OpenAlex, two of the largest public scholarly databases, plus the official doi.org resolver. Retraction status comes from CrossRef, which carries the Retraction Watch database. Results are cached locally for a day so the same reference is never looked up twice.
+Citicious reads the identifiers already printed on the page (DOIs and PubMed IDs) and validates them against CrossRef and OpenAlex, two of the largest public scholarly databases, plus the official doi.org resolver. DOI retraction status is checked in both CrossRef and OpenAlex. Results are cached locally for a day, and repeated occurrences share one network lookup.
 
 WHAT YOU SEE
 
 A banner at the top of a retracted article, with a link to the notice.
-An inline badge beside every reference in the bibliography.
+A status badge beside each of the first 500 recognized bibliography entries, including "Not checked" when no DOI or PubMed ID is available.
 A glass summary bar that counts the problems on the page; click a count to jump straight to the first flagged reference.
-A side panel listing every citation and its status.
+A side panel showing scan coverage, any overflow indication, and the status of each scanned citation.
 A DOI checker in the toolbar popup, for verifying any reference on demand.
 
 BUILT TO BE FAIR
 
-A conservative tool is the only kind worth trusting. A DOI that is registered but simply not indexed, such as a dataset, a thesis, or a piece of software, is labeled "Unverified" rather than fake. When a database is unreachable, Citicious says nothing at all rather than guessing. It will never call a reference fake unless the DOI fails to resolve anywhere.
+A conservative tool is the only kind worth trusting. A DOI that is registered but simply not indexed, such as a dataset, a thesis, or a piece of software, is labeled "Unverified" rather than fake. When a database is unreachable, Citicious shows "Check failed" rather than guessing. It will never call a reference fake unless the DOI fails to resolve anywhere.
 
 PRIVACY
 

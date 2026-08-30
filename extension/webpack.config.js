@@ -40,7 +40,7 @@ module.exports = {
         { from: 'src/sidebar/sidebar.html', to: 'sidebar/sidebar.html' },
         { from: 'src/popup/popup.html', to: 'popup/popup.html' },
         { from: 'src/content/ui/styles.css', to: 'content/styles.css' },
-        { from: 'src/assets', to: 'assets' },
+        { from: 'src/assets', to: 'assets', globOptions: { ignore: ['**/.DS_Store'] } },
       ],
     }),
   ],

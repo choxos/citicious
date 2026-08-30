@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   injectTopBanner,
   injectBadge,
+  updateBadge,
   injectReferencesBanner,
   removeAllBadges,
 } from '../badge-injector';
@@ -162,6 +163,17 @@ describe('injectReferencesBanner', () => {
 });
 
 describe('injectBadge tooltips', () => {
+  it('updates a definition-list badge in place', () => {
+    document.body.innerHTML = '<dl><dd id="ref">Some reference</dd></dl>';
+    const el = document.getElementById('ref') as HTMLElement;
+    injectBadge(el, 'checking');
+    updateBadge(el, 'verified');
+
+    expect(el.querySelectorAll('.citicious-badge')).toHaveLength(1);
+    expect(document.querySelectorAll('.citicious-badge')).toHaveLength(1);
+    expect(el.querySelector('.citicious-badge')?.textContent).toContain('Verified');
+  });
+
   it('omits reason text when the reason list is empty', () => {
     document.body.innerHTML = '<li id="ref">Some reference</li>';
     const el = document.getElementById('ref') as HTMLElement;
@@ -183,6 +195,27 @@ describe('injectBadge tooltips', () => {
     const badge = injectBadge(el, 'fake-likely')!;
     expect(badge.querySelector('.citicious-badge__label')?.textContent).toBe('DOI NOT FOUND');
   });
+
+  it('does not describe an unindexed PubMed ID as a registered DOI', () => {
+    document.body.innerHTML = '<li id="ref">Some reference</li>';
+    const el = document.getElementById('ref') as HTMLElement;
+    const badge = injectBadge(el, 'unverified', undefined, [{
+      field: 'pmid',
+      provided: '99999999',
+      actual: 'Not indexed in OpenAlex',
+      severity: 'minor',
+    }])!;
+    expect(badge.title).toContain('PubMed ID');
+    expect(badge.title).not.toContain('registered DOI');
+  });
+
+  it('shows explicit badges for uncheckable and failed references', () => {
+    document.body.innerHTML = '<li id="first">No identifier</li><li id="second">Timed out</li>';
+    const first = injectBadge(document.getElementById('first') as HTMLElement, 'not-checkable')!;
+    const second = injectBadge(document.getElementById('second') as HTMLElement, 'failed')!;
+    expect(first.querySelector('.citicious-badge__label')?.textContent).toBe('NOT CHECKED');
+    expect(second.querySelector('.citicious-badge__label')?.textContent).toBe('CHECK FAILED');
+  });
 });
 
 describe('removeAllBadges', () => {
@@ -191,10 +224,12 @@ describe('removeAllBadges', () => {
     document.body.innerHTML = '<li id="ref">Some reference</li>';
     document.body.style.marginTop = '5px';
     const el = document.getElementById('ref') as HTMLElement;
+    el.classList.add('citicious-reference--retracted');
     injectBadge(el, 'retracted', details());
     injectTopBanner('retracted', details());
     removeAllBadges();
     expect(document.querySelectorAll('.citicious-badge, .citicious-banner')).toHaveLength(0);
+    expect(el.classList.contains('citicious-reference--retracted')).toBe(false);
     expect(document.body.style.marginTop).toBe('5px');
   });
 });

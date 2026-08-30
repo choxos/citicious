@@ -1,6 +1,12 @@
 import { citiciousAPI } from '../shared/api-client';
 import { escapeHtml } from '../shared/utils';
 import { isValidDoi, normalizeDoi } from '../content/extractors/doi-extractor';
+import type { CitationStatus } from '../shared/types';
+
+interface PageCitation {
+  context: 'current-article' | 'reference';
+  status: CitationStatus;
+}
 
 /**
  * Initialize popup
@@ -88,17 +94,24 @@ async function loadPageStatus() {
     });
 
     if (response && response.citations) {
-      const citations = response.citations;
+      const citations = response.citations as PageCitation[];
+      const references = citations.filter((c) => c.context === 'reference');
+      const hasMoreReferences = response.hasMoreReferences === true;
 
-      const retracted = citations.filter((c: any) => c.status === 'retracted');
+      const retracted = citations.filter((c) => c.status === 'retracted');
       const concerns = citations.filter(
-        (c: any) => c.status === 'concern' || c.status === 'correction'
+        (c) => c.status === 'concern' || c.status === 'correction'
       );
       const suspicious = citations.filter(
-        (c: any) => c.status === 'fake-likely' || c.status === 'fake-probably'
+        (c) => c.status === 'fake-likely' || c.status === 'fake-probably'
       );
-      const verified = citations.filter((c: any) => c.status === 'verified');
+      const verified = references.filter((c) => c.status === 'verified');
+      const pending = references.filter((c) => c.status === 'checking').length;
+      const notCheckable = references.filter((c) => c.status === 'not-checkable').length;
+      const failed = references.filter((c) => c.status === 'failed' || c.status === 'skip').length;
+      const checked = references.length - pending - notCheckable - failed;
       const problematic = retracted.length + concerns.length + suspicious.length;
+      const coverageText = `${checked}/${references.length}${hasMoreReferences ? ' scanned references checked' : ' references checked'}${notCheckable ? ` · ${notCheckable} without DOI/PMID` : ''}${failed ? ` · ${failed} failed` : ''}${pending ? ` · ${pending} pending` : ''}${hasMoreReferences ? ' · additional references not scanned (500-reference safety limit)' : ''}`;
 
       // Update stats
       document.getElementById('retracted-count')!.textContent = String(retracted.length);
@@ -109,7 +122,7 @@ async function loadPageStatus() {
       // Show status
       if (problematic > 0) {
         const currentArticleRetracted = citations.some(
-          (c: any) => c.context === 'current-article' && c.status === 'retracted'
+          (c) => c.context === 'current-article' && c.status === 'retracted'
         );
 
         if (currentArticleRetracted) {
@@ -117,6 +130,7 @@ async function loadPageStatus() {
             <div class="status-box status-box--retracted">
               <div class="status-icon">⚠️</div>
               <div class="status-text">This article is RETRACTED</div>
+              ${references.length || hasMoreReferences ? `<div class="status-coverage">${coverageText}</div>` : ''}
             </div>
           `;
         } else {
@@ -124,21 +138,36 @@ async function loadPageStatus() {
             <div class="status-box status-box--retracted">
               <div class="status-icon">⚠️</div>
               <div class="status-text">${problematic} problematic citation${problematic > 1 ? 's' : ''} found</div>
+              ${references.length || hasMoreReferences ? `<div class="status-coverage">${coverageText}</div>` : ''}
             </div>
           `;
         }
-      } else if (verified.length > 0) {
-        statusEl.innerHTML = `
-          <div class="status-box status-box--clean">
-            <div class="status-icon">✓</div>
-            <div class="status-text">All ${verified.length} citations verified</div>
-          </div>
-        `;
-      } else {
+      } else if (references.length === 0 && !hasMoreReferences) {
         statusEl.innerHTML = `
           <div class="status-box">
             <div class="status-icon">📄</div>
-            <div class="status-text">Scanning page...</div>
+            <div class="status-text">No references found on this page</div>
+          </div>
+        `;
+      } else if (pending > 0) {
+        statusEl.innerHTML = `
+            <div class="status-box">
+              <div class="status-icon">⟳</div>
+              <div class="status-text">${coverageText}</div>
+            </div>
+        `;
+      } else if (notCheckable > 0 || failed > 0 || hasMoreReferences) {
+        statusEl.innerHTML = `
+            <div class="status-box">
+              <div class="status-icon">ℹ</div>
+              <div class="status-text">${coverageText}</div>
+            </div>
+        `;
+      } else {
+        statusEl.innerHTML = `
+          <div class="status-box status-box--clean">
+            <div class="status-icon">✓</div>
+            <div class="status-text">All ${references.length} references checked</div>
           </div>
         `;
       }

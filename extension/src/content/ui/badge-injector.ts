@@ -1,7 +1,7 @@
 import type { CitationStatus, RetractionDetails, Discrepancy } from '../../shared/types';
+import { safeHttpUrl } from '../../shared/utils';
 
 // Badge configuration per status
-// Note: 'skip' status doesn't show a badge
 // Icons are monochrome text glyphs (not emoji) so they inherit each badge's
 // severity color and stay legible on both light and dark publisher themes.
 const BADGE_CONFIG: Partial<Record<CitationStatus, { icon: string; label: string; className: string }>> = {
@@ -12,8 +12,10 @@ const BADGE_CONFIG: Partial<Record<CitationStatus, { icon: string; label: string
   correction: { icon: '!', label: 'CORRECTION', className: 'citicious-badge--correction' },
   'fake-likely': { icon: '✕', label: 'DOI NOT FOUND', className: 'citicious-badge--fake-likely' },
   'fake-probably': { icon: '!', label: 'TITLE MISMATCH', className: 'citicious-badge--fake-probably' },
+  'not-checkable': { icon: '—', label: 'NOT CHECKED', className: 'citicious-badge--unverified' },
+  failed: { icon: '!', label: 'CHECK FAILED', className: 'citicious-badge--unverified' },
+  skip: { icon: '!', label: 'CHECK FAILED', className: 'citicious-badge--unverified' },
   checking: { icon: '⟳', label: 'Checking...', className: 'citicious-badge--checking' },
-  // 'skip' intentionally not included - no badge shown
 };
 
 // Per-status banner copy: sentence-case title + one-line summary
@@ -89,17 +91,6 @@ function dismissBanner(banner: HTMLElement): void {
   const remove = () => banner.remove();
   banner.addEventListener('transitionend', remove, { once: true });
   setTimeout(remove, 250);
-}
-
-/** Only http(s) notice URLs are ever rendered as links. */
-function safeNoticeUrl(url: string | null | undefined): string | null {
-  if (!url) return null;
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.href : null;
-  } catch {
-    return null;
-  }
 }
 
 /** Human-readable date for a banner chip, or null when unparseable. */
@@ -184,7 +175,7 @@ function buildBanner(options: {
   body.appendChild(summary);
 
   const hasMeta = options.metaChips && options.metaChips.length > 0;
-  const linkUrl = safeNoticeUrl(options.linkUrl);
+  const linkUrl = safeHttpUrl(options.linkUrl);
   if (hasMeta || linkUrl || options.sourceText) {
     const details = document.createElement('div');
     details.className = 'citicious-banner__details';
@@ -316,6 +307,8 @@ export function injectReferencesBanner(
   const total =
     counts.retracted + counts.notFound + counts.mismatch + counts.concern + counts.correction;
   if (total === 0) {
+    document.getElementById('citicious-top-banner')?.remove();
+    restoreBodyMargin();
     return null;
   }
 
@@ -449,7 +442,14 @@ function badgeTooltip(
     case 'verified':
       return 'Citation verified in academic databases';
     case 'unverified':
-      return 'This DOI is registered (resolves at doi.org) but is not indexed in CrossRef/OpenAlex; common for datasets, software, or theses';
+      return discrepancies?.some((discrepancy) => discrepancy.field === 'pmid')
+        ? 'This PubMed ID was not found in OpenAlex, so the reference could not be verified'
+        : 'This DOI is registered (resolves at doi.org) but is not indexed in CrossRef/OpenAlex; common for datasets, software, or theses';
+    case 'not-checkable':
+      return 'Not checked because this reference has no DOI or PubMed ID';
+    case 'failed':
+    case 'skip':
+      return 'The reference could not be checked because an external lookup failed';
     default:
       return '';
   }
@@ -457,7 +457,6 @@ function badgeTooltip(
 
 /**
  * Inject a badge next to a citation element
- * Returns null if status is 'skip' (no badge shown)
  */
 export function injectBadge(
   element: HTMLElement,
@@ -471,7 +470,6 @@ export function injectBadge(
     existingBadge.remove();
   }
 
-  // Skip status = no badge
   const config = BADGE_CONFIG[status];
   if (!config) {
     return null;
@@ -502,7 +500,12 @@ export function injectBadge(
   // with list numbering on publishers that use hanging indents (the badge
   // gets pulled left over the "7." marker); the end of the reference, next
   // to the publisher's own outbound links, is collision-free.
-  if (element.tagName === 'LI' || element.tagName === 'P' || element.tagName === 'DIV') {
+  if (
+    element.tagName === 'LI' ||
+    element.tagName === 'P' ||
+    element.tagName === 'DIV' ||
+    element.tagName === 'DD'
+  ) {
     element.appendChild(badge);
   } else {
     // For inline elements, insert after
@@ -514,7 +517,6 @@ export function injectBadge(
 
 /**
  * Update an existing badge's status
- * If status is 'skip', removes the badge
  */
 export function updateBadge(
   element: HTMLElement,
@@ -524,7 +526,6 @@ export function updateBadge(
 ): void {
   const existingBadge = element.querySelector('.citicious-badge') as HTMLElement;
 
-  // Skip status = remove badge if it exists
   const config = BADGE_CONFIG[status];
   if (!config) {
     if (existingBadge) {
@@ -533,7 +534,6 @@ export function updateBadge(
     return;
   }
 
-  // No existing badge and not skip = inject new badge
   if (!existingBadge) {
     injectBadge(element, status, details, discrepancies);
     return;
@@ -569,5 +569,16 @@ export function updateBadge(
 export function removeAllBadges(): void {
   document.querySelectorAll('.citicious-badge').forEach((badge) => badge.remove());
   document.querySelectorAll('.citicious-banner').forEach((banner) => banner.remove());
+  const stateClasses = [
+    'citicious-reference--retracted',
+    'citicious-reference--concern',
+    'citicious-reference--correction',
+    'citicious-reference--fake-likely',
+    'citicious-reference--fake-probably',
+    'citicious-highlight',
+  ];
+  document
+    .querySelectorAll(stateClasses.map((className) => `.${className}`).join(','))
+    .forEach((element) => element.classList.remove(...stateClasses));
   restoreBodyMargin();
 }

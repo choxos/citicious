@@ -165,11 +165,13 @@ async function importRetractionWatch(filePath: string) {
   const withPmid = await prisma.retraction.count({
     where: { originalPaperPubmedId: { not: null } },
   });
+  const doiPercentage = stats._count === 0 ? '0.0' : ((withDoi / stats._count) * 100).toFixed(1);
+  const pmidPercentage = stats._count === 0 ? '0.0' : ((withPmid / stats._count) * 100).toFixed(1);
 
   console.log(`\nDatabase stats:`);
   console.log(`Total retractions: ${stats._count}`);
-  console.log(`With DOI: ${withDoi} (${((withDoi / stats._count) * 100).toFixed(1)}%)`);
-  console.log(`With PMID: ${withPmid} (${((withPmid / stats._count) * 100).toFixed(1)}%)`);
+  console.log(`With DOI: ${withDoi} (${doiPercentage}%)`);
+  console.log(`With PMID: ${withPmid} (${pmidPercentage}%)`);
 }
 
 // Run import
@@ -177,11 +179,10 @@ const csvPath = process.argv[2] || '../retraction_watch.csv';
 importRetractionWatch(csvPath)
   .then(() => {
     console.log('\nDone!');
-    process.exit(0);
   })
   .catch((error) => {
     console.error('Import failed:', error);
-    process.exit(1);
+    process.exitCode = 1;
   })
   .finally(async () => {
     await prisma.$disconnect();

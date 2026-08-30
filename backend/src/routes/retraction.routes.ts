@@ -20,6 +20,7 @@ export async function retractionRoutes(app: FastifyInstance) {
             type: 'object',
             properties: {
               isRetracted: { type: 'boolean' },
+              status: { type: 'string' },
               details: {
                 type: 'object',
                 properties: {

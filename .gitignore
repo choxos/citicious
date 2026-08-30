@@ -5,6 +5,7 @@ node_modules/
 dist/
 build/
 citicious-extension*.zip
+citicious-extension*.tar.gz
 
 # Environment files
 .env
@@ -44,6 +45,4 @@ extension/dist/
 
 # Large data files (download from GitLab)
 retraction_watch.csv
-
-# Lock files (optional)
-package-lock.json
+.gstack/

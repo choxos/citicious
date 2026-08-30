@@ -16,17 +16,16 @@ export async function healthRoutes(app: FastifyInstance) {
           connected: true,
           retractionCount: count,
         },
-        version: '0.1.0',
+        version: '0.2.0',
       };
-    } catch (error) {
+    } catch {
       return reply.status(503).send({
         status: 'unhealthy',
         timestamp: new Date().toISOString(),
         database: {
           connected: false,
-          error: error instanceof Error ? error.message : 'Unknown error',
         },
-        version: '0.1.0',
+        version: '0.2.0',
       });
     }
   });
@@ -62,8 +61,12 @@ export async function healthRoutes(app: FastifyInstance) {
         coverage: {
           withDoi,
           withPmid,
-          doiPercentage: ((withDoi / totalRetractions) * 100).toFixed(1),
-          pmidPercentage: ((withPmid / totalRetractions) * 100).toFixed(1),
+          doiPercentage: totalRetractions === 0
+            ? '0.0'
+            : ((withDoi / totalRetractions) * 100).toFixed(1),
+          pmidPercentage: totalRetractions === 0
+            ? '0.0'
+            : ((withPmid / totalRetractions) * 100).toFixed(1),
         },
         retractionsByYear: retractionsByYear.map((r) => ({
           year: r.year,

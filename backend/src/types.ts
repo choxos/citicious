@@ -18,14 +18,18 @@ export interface RetractionCheckRequest {
   pmid?: string;
 }
 
+export type RetractionStatus = 'retracted' | 'concern' | 'correction';
+
 export interface RetractionCheckResponse {
   isRetracted: boolean;
+  status?: RetractionStatus;
   details?: RetractionDetails;
 }
 
 // Citation validation types
 export interface CitationInput {
   doi?: string;
+  pmid?: string;
   title?: string;
   authors?: string[];
   year?: number;
@@ -55,6 +59,7 @@ export interface MatchedData {
 // Citation status - simplified for user clarity
 export type CitationStatus =
   | 'verified'       // ✓ DOI exists in CrossRef/OpenAlex
+  | 'unverified'
   | 'retracted'      // ⚠️ In RWD as retraction
   | 'concern'        // ⚠️ In RWD as expression of concern
   | 'correction'     // ⚠️ In RWD as correction
@@ -109,6 +114,7 @@ export interface OpenAlexWork {
   journal: string;
   openAlexId: string;
   citedByCount?: number;
+  isRetracted?: boolean;
 }
 
 // OpenAlex lookup result - distinguishes found/not_found/error

@@ -1,8 +1,47 @@
 import { PrismaClient, Retraction } from '@prisma/client';
-import type { RetractionDetails, RetractionCheckResponse } from '../types.js';
+import type {
+  RetractionDetails,
+  RetractionCheckResponse,
+  RetractionStatus,
+} from '../types.js';
+import { fetchWithTimeout } from '../utils/fetch.js';
 
 const prisma = new PrismaClient();
 const CROSSREF_BASE_URL = 'https://api.crossref.org';
+
+interface CrossRefUpdate {
+  type?: string;
+  DOI?: string;
+  source?: string;
+  updated?: {
+    timestamp?: number;
+    'date-time'?: string;
+  };
+}
+
+interface CrossRefWork {
+  title?: string[];
+  'container-title'?: string[];
+  publisher?: string;
+  author?: { given?: string; family?: string }[];
+  created?: { 'date-time'?: string };
+  published?: { 'date-time'?: string };
+  'updated-by'?: unknown;
+}
+
+interface CrossRefCheckResponse extends RetractionCheckResponse {
+  isReinstated?: boolean;
+}
+
+function normalizedUpdateType(update: CrossRefUpdate): string {
+  return String(update.type || '').toLowerCase().replace(/_/g, '-');
+}
+
+function updateTimestamp(update: CrossRefUpdate): number {
+  if (typeof update.updated?.timestamp === 'number') return update.updated.timestamp;
+  const parsed = Date.parse(update.updated?.['date-time'] || '');
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
 export class RetractionService {
   private email: string;
@@ -13,7 +52,7 @@ export class RetractionService {
 
   private get headers(): HeadersInit {
     return {
-      'User-Agent': `Citicious/0.1.0 (mailto:${this.email})`,
+      'User-Agent': `Citicious/0.2.0 (mailto:${this.email})`,
       Accept: 'application/json',
     };
   }
@@ -25,15 +64,11 @@ export class RetractionService {
     return doi.toLowerCase().trim().replace(/^https?:\/\/doi\.org\//i, '');
   }
 
-  /**
-   * Check if a DOI is retracted using CrossRef API (primary method)
-   * CrossRef includes Retraction Watch data in the update-to field
-   */
-  async checkViaCrossRefApi(doi: string): Promise<RetractionCheckResponse> {
+  async checkViaCrossRefApi(doi: string): Promise<CrossRefCheckResponse> {
     const normalizedDoi = this.normalizeDoi(doi);
 
     try {
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${CROSSREF_BASE_URL}/works/${encodeURIComponent(normalizedDoi)}`,
         { headers: this.headers }
       );
@@ -45,46 +80,111 @@ export class RetractionService {
         throw new Error(`CrossRef API error: ${response.status}`);
       }
 
-      const data = await response.json() as { message: any };
-      const work = data.message;
+      const data = await response.json() as { message?: CrossRefWork };
+      const work = data.message || {};
+      const rawUpdates: unknown[] = Array.isArray(work['updated-by'])
+        ? work['updated-by']
+        : [];
+      const updates = rawUpdates.filter(
+        (candidate): candidate is CrossRefUpdate =>
+          candidate !== null && typeof candidate === 'object'
+      );
 
-      // Check if the work has been retracted
-      // CrossRef uses 'update-to' field for retractions from both publishers and Retraction Watch
-      if (work['update-to']) {
-        for (const update of work['update-to']) {
-          if (
-            update.type === 'retraction' ||
-            update.type === 'expression-of-concern'
-          ) {
-            return {
-              isRetracted: true,
-              details: {
-                recordId: 0, // CrossRef doesn't have Retraction Watch record ID
-                title: work.title?.[0] || null,
-                journal: work['container-title']?.[0] || null,
-                publisher: work.publisher || null,
-                authors:
-                  work.author?.map(
-                    (a: any) => `${a.given || ''} ${a.family || ''}`.trim()
-                  ) || [],
-                retractionDate: update.updated?.['date-time'] || null,
-                retractionNature:
-                  update.type === 'retraction'
-                    ? 'Retraction'
-                    : 'Expression of Concern',
-                reason: [], // CrossRef API doesn't include detailed reasons
-                retractionNoticeUrl: update.DOI
-                  ? `https://doi.org/${update.DOI}`
-                  : null,
-                originalPaperDate:
-                  work.created?.['date-time'] ||
-                  work.published?.['date-time'] ||
-                  null,
-                source: update.source || 'publisher', // 'publisher' or 'retraction-watch'
-              },
-            };
-          }
+      let reinstatedAt = 0;
+      for (const update of updates) {
+        if (normalizedUpdateType(update).includes('reinstat')) {
+          reinstatedAt = Math.max(reinstatedAt, updateTimestamp(update));
         }
+      }
+
+      const candidates: {
+        update: CrossRefUpdate;
+        type: string;
+        status: RetractionStatus;
+        nature: string;
+        rank: number;
+        timestamp: number;
+      }[] = [];
+
+      for (const update of updates) {
+        const type = normalizedUpdateType(update);
+        let status: RetractionStatus | undefined;
+        let nature = '';
+        let rank = 0;
+
+        if (type.includes('retract')) {
+          status = 'retracted';
+          nature = 'Retraction';
+          rank = 4;
+        } else if (type.includes('withdraw')) {
+          status = 'retracted';
+          nature = 'Withdrawal';
+          rank = 3;
+        } else if (type.includes('concern')) {
+          status = 'concern';
+          nature = 'Expression of Concern';
+          rank = 2;
+        } else if (type.includes('correct')) {
+          status = 'correction';
+          nature = 'Correction';
+          rank = 1;
+        }
+
+        if (!status) continue;
+        const timestamp = updateTimestamp(update);
+        if (
+          status === 'retracted' &&
+          reinstatedAt > 0 &&
+          reinstatedAt >= timestamp
+        ) {
+          continue;
+        }
+        candidates.push({ update, type, status, nature, rank, timestamp });
+      }
+
+      candidates.sort(
+        (a, b) =>
+          b.rank - a.rank ||
+          b.timestamp - a.timestamp ||
+          a.type.localeCompare(b.type) ||
+          String(a.update.DOI || '').localeCompare(String(b.update.DOI || ''))
+      );
+      const selected = candidates[0];
+
+      if (selected) {
+        return {
+          isRetracted: selected.status === 'retracted',
+          status: selected.status,
+          details: {
+            recordId: 0,
+            title: work.title?.[0] || null,
+            journal: work['container-title']?.[0] || null,
+            publisher: work.publisher || null,
+            authors:
+              work.author?.map(
+                (author: { given?: string; family?: string }) =>
+                  `${author.given || ''} ${author.family || ''}`.trim()
+              ) || [],
+            retractionDate: selected.update.updated?.['date-time'] || null,
+            retractionNature: selected.nature,
+            reason: [],
+            retractionNoticeUrl: selected.update.DOI
+              ? `https://doi.org/${selected.update.DOI}`
+              : null,
+            originalPaperDate:
+              work.created?.['date-time'] ||
+              work.published?.['date-time'] ||
+              null,
+            source:
+              selected.update.source === 'retraction-watch'
+                ? 'retraction-watch'
+                : 'publisher',
+          },
+        };
+      }
+
+      if (reinstatedAt > 0) {
+        return { isRetracted: false, isReinstated: true };
       }
 
       return { isRetracted: false };
@@ -113,6 +213,7 @@ export class RetractionService {
     if (retraction) {
       return {
         isRetracted: true,
+        status: 'retracted',
         details: this.formatDetails(retraction),
       };
     }
@@ -124,16 +225,18 @@ export class RetractionService {
    * Check if a DOI corresponds to a retracted article
    * Uses CrossRef API first (includes Retraction Watch data), falls back to local DB
    */
-  async checkByDoi(doi: string): Promise<RetractionCheckResponse> {
+  async checkByDoi(doi: string): Promise<CrossRefCheckResponse> {
     // Primary: CrossRef API (includes Retraction Watch data)
     const apiResult = await this.checkViaCrossRefApi(doi);
-    if (apiResult.isRetracted) {
+    if (apiResult.status === 'retracted' || apiResult.isReinstated) {
       return apiResult;
     }
 
     // Fallback: Local Retraction Watch database
     // (in case CrossRef doesn't have the retraction yet or API failed)
-    return this.checkByDoiLocal(doi);
+    const localResult = await this.checkByDoiLocal(doi);
+    if (localResult.isRetracted) return localResult;
+    return apiResult.status ? apiResult : localResult;
   }
 
   /**
@@ -151,6 +254,7 @@ export class RetractionService {
     if (retraction) {
       return {
         isRetracted: true,
+        status: 'retracted',
         details: this.formatDetails(retraction),
       };
     }
@@ -162,16 +266,19 @@ export class RetractionService {
    * Check by either DOI or PMID
    */
   async check(doi?: string, pmid?: string): Promise<RetractionCheckResponse> {
+    let doiResult: CrossRefCheckResponse | undefined;
     if (doi) {
-      const result = await this.checkByDoi(doi);
-      if (result.isRetracted) return result;
+      doiResult = await this.checkByDoi(doi);
+      if (doiResult.isReinstated) return { isRetracted: false };
+      if (doiResult.isRetracted) return doiResult;
     }
 
     if (pmid) {
       const result = await this.checkByPmid(pmid);
-      if (result.isRetracted) return result;
+      if (result.status) return result;
     }
 
+    if (doiResult?.status) return doiResult;
     return { isRetracted: false };
   }
 

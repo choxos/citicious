@@ -1,6 +1,7 @@
 import { stringSimilarity } from 'string-similarity-js';
 import { crossrefService } from './crossref.service.js';
 import { openalexService } from './openalex.service.js';
+import { retractionService } from './retraction.service.js';
 import type {
   CitationInput,
   CitationValidationResponse,
@@ -16,13 +17,59 @@ export class CitationValidatorService {
    * Validate a citation and detect if it's fake/hallucinated
    */
   async validate(citation: CitationInput): Promise<CitationValidationResponse> {
-    // Priority 1: DOI lookup (fastest, most reliable)
     if (citation.doi) {
       return this.validateByDoi(citation);
     }
+    if (citation.pmid) {
+      return this.validateByPmid(citation);
+    }
 
-    // Priority 2: Fuzzy search by metadata
     return this.validateByMetadata(citation);
+  }
+
+  private async validateByPmid(
+    citation: CitationInput
+  ): Promise<CitationValidationResponse> {
+    const openalexResult = await openalexService.getWorkByPmid(citation.pmid!);
+
+    if (openalexResult.status === 'found') {
+      const matchedData = this.openalexToMatchedData(openalexResult.work);
+      const doiRetraction = openalexResult.work.doi
+        ? await retractionService.checkByDoi(openalexResult.work.doi)
+        : undefined;
+      const status: CitationStatus = doiRetraction?.isReinstated
+        ? 'verified'
+        : doiRetraction?.status === 'retracted' || openalexResult.work.isRetracted
+          ? 'retracted'
+          : doiRetraction?.status || 'verified';
+
+      return {
+        exists: true,
+        confidence: 1,
+        source: 'openalex',
+        matchedData,
+        discrepancies: this.compareMetadata(citation, matchedData),
+        status,
+      };
+    }
+
+    return {
+      exists: false,
+      confidence: 0,
+      source: openalexResult.status === 'not_found' ? 'openalex' : 'none',
+      discrepancies:
+        openalexResult.status === 'not_found'
+          ? [
+              {
+                field: 'pmid',
+                provided: citation.pmid!,
+                actual: 'NOT FOUND IN OPENALEX',
+                severity: 'minor',
+              },
+            ]
+          : [],
+      status: openalexResult.status === 'not_found' ? 'unverified' : 'skip',
+    };
   }
 
   /**

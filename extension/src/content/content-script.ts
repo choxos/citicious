@@ -1,8 +1,9 @@
 import {
-  scanPageForDois,
   extractCurrentArticleDoi,
   findReferenceSection,
   extractReferenceDois,
+  containsReferenceSectionMarker,
+  MAX_REFERENCES_PER_PAGE,
 } from './extractors/doi-extractor';
 import {
   injectTopBanner,
@@ -52,9 +53,80 @@ function jumpToFirstReference(category: ReferenceIssueCategory): void {
 
 // Store checked citations
 const checkedCitations: Map<string, CheckedCitation> = new Map();
+let lastScannedUrl = window.location.href;
+let processedReferenceCount = 0;
+let hasMoreReferences = false;
+const processedIdentifierKeys = new Set<string>();
+let referenceSection: HTMLElement | null = null;
 
 // Debounce timer for scanning
 let scanDebounceTimer: number | null = null;
+
+function getPageStatus() {
+  return {
+    url: window.location.href,
+    hasMoreReferences,
+    citations: Array.from(checkedCitations.values()).map((citation) => ({
+      id: citation.id,
+      doi: citation.doi,
+      pmid: citation.pmid,
+      title: citation.title,
+      referenceText: citation.referenceText,
+      context: citation.context,
+      status: citation.result?.status || (citation.checking ? 'checking' : 'failed'),
+      isRetracted: citation.result?.isRetracted || false,
+      details: citation.result?.retractionDetails,
+      validation: citation.result?.validation,
+    })),
+  };
+}
+
+function broadcastPageStatus(): void {
+  chrome.runtime
+    .sendMessage({ type: 'UPDATE_PAGE_STATUS', payload: getPageStatus() })
+    .catch(() => {});
+}
+
+function syncPageBanner(): void {
+  const currentArticleResult = Array.from(checkedCitations.values()).find(
+    (citation) => citation.context === 'current-article'
+  )?.result;
+
+  if (currentArticleResult?.isRetracted) {
+    injectTopBanner('retracted', currentArticleResult.retractionDetails || undefined);
+    return;
+  }
+  if (currentArticleResult?.status === 'concern' || currentArticleResult?.status === 'correction') {
+    injectTopBanner(
+      currentArticleResult.status,
+      currentArticleResult.retractionDetails || undefined
+    );
+    return;
+  }
+  if (
+    currentArticleResult?.status === 'fake-likely' ||
+    currentArticleResult?.status === 'fake-probably'
+  ) {
+    injectTopBanner(
+      currentArticleResult.status,
+      undefined,
+      currentArticleResult.validation?.discrepancies
+    );
+    return;
+  }
+
+  const counts = { retracted: 0, notFound: 0, mismatch: 0, concern: 0, correction: 0 };
+  for (const checked of checkedCitations.values()) {
+    if (checked.context !== 'reference') continue;
+    const status = checked.result?.status;
+    if (status === 'retracted') counts.retracted++;
+    else if (status === 'fake-likely') counts.notFound++;
+    else if (status === 'fake-probably') counts.mismatch++;
+    else if (status === 'concern') counts.concern++;
+    else if (status === 'correction') counts.correction++;
+  }
+  injectReferencesBanner(counts, jumpToFirstReference);
+}
 
 /**
  * Initialize the content script
@@ -146,29 +218,90 @@ function isRelevantPage(): boolean {
 /**
  * Scan the page for DOIs and check them
  */
-async function scanPage() {
-  // Extract citations from the page
-  const extracted = scanPageForDois(document);
-
-  // Skip citations we've already processed so MutationObserver rescans don't
-  // re-inject "Checking…" badges or double-count references. scanPageForDois
-  // generates fresh ids each run, so dedupe by DOI/PMID and by element.
-  const seenKeys = new Set<string>();
-  const seenElements = new Set<HTMLElement>();
-  for (const c of checkedCitations.values()) {
-    if (c.doi) seenKeys.add(`doi:${c.doi}`);
-    if (c.pmid) seenKeys.add(`pmid:${c.pmid}`);
-    seenElements.add(c.element);
+export async function scanPage() {
+  if (window.location.href !== lastScannedUrl) {
+    removeAllBadges();
+    checkedCitations.clear();
+    processedReferenceCount = 0;
+    hasMoreReferences = false;
+    processedIdentifierKeys.clear();
+    referenceSection = null;
+    lastScannedUrl = window.location.href;
   }
 
-  const citations = extracted.filter((c) => {
-    const key = c.doi ? `doi:${c.doi}` : c.pmid ? `pmid:${c.pmid}` : null;
-    if (key && seenKeys.has(key)) return false;
-    if (seenElements.has(c.element)) return false;
-    return true;
+  for (const [id, citation] of checkedCitations) {
+    if (citation.context === 'reference' && !citation.element.isConnected) {
+      checkedCitations.delete(id);
+    }
+  }
+
+  // Extract citations from the page
+  const extracted: ExtractedCitation[] = [];
+  const currentArticle = extractCurrentArticleDoi(document);
+  if (currentArticle?.doi) extracted.push(currentArticle);
+  referenceSection = findReferenceSection(document);
+  if (referenceSection) {
+    extracted.push(...extractReferenceDois(referenceSection, MAX_REFERENCES_PER_PAGE + 1));
+  }
+
+  const seenElements = new Map<HTMLElement, CheckedCitation>();
+  for (const citation of checkedCitations.values()) {
+    seenElements.set(citation.element, citation);
+  }
+
+  const currentArticleCandidates: ExtractedCitation[] = [];
+  const replacementReferenceCandidates: ExtractedCitation[] = [];
+  const newReferenceCandidates: ExtractedCitation[] = [];
+  for (const citation of extracted) {
+    const previous = seenElements.get(citation.element);
+    if (previous && previous.doi === citation.doi && previous.pmid === citation.pmid) continue;
+    if (previous) {
+      checkedCitations.delete(previous.id);
+      previous.element.classList.remove(
+        'citicious-reference--retracted',
+        'citicious-reference--concern',
+        'citicious-reference--correction',
+        'citicious-reference--fake-likely',
+        'citicious-reference--fake-probably'
+      );
+    }
+    if (citation.context === 'current-article') {
+      currentArticleCandidates.push(citation);
+    } else if (previous) {
+      replacementReferenceCandidates.push(citation);
+    } else {
+      newReferenceCandidates.push(citation);
+    }
+  }
+
+  const availableReferenceSlots = Math.max(
+    0,
+    MAX_REFERENCES_PER_PAGE - processedReferenceCount
+  );
+  const newReferencesToCheck = newReferenceCandidates.slice(0, availableReferenceSlots);
+  const referenceCandidates = [...replacementReferenceCandidates, ...newReferencesToCheck];
+  processedReferenceCount += newReferencesToCheck.length;
+  hasMoreReferences = newReferenceCandidates.length > newReferencesToCheck.length;
+  const referencesToCheck = referenceCandidates.filter((citation) => {
+    const identifierKey = citation.doi
+      ? `doi:${citation.doi}`
+      : citation.pmid
+        ? `pmid:${citation.pmid}`
+        : null;
+    if (!identifierKey || processedIdentifierKeys.has(identifierKey)) return true;
+    if (processedIdentifierKeys.size < MAX_REFERENCES_PER_PAGE) {
+      processedIdentifierKeys.add(identifierKey);
+      return true;
+    }
+    citation.element.querySelectorAll('.citicious-badge').forEach((badge) => badge.remove());
+    hasMoreReferences = true;
+    return false;
   });
+  const citations = [...currentArticleCandidates, ...referencesToCheck];
 
   if (citations.length === 0) {
+    syncPageBanner();
+    broadcastPageStatus();
     return;
   }
 
@@ -203,24 +336,24 @@ async function scanPage() {
       })),
     });
 
-    if (response?.results) {
-      handleCheckResults(response.results);
-    }
+    if (!response?.results) throw new Error('Citation check failed');
+    handleCheckResults(response.results);
   } catch (error) {
-    // Mark all as skip (can't determine)
     for (const citation of citations) {
       const checked = checkedCitations.get(citation.id);
       if (checked) {
         checked.checking = false;
         checked.result = {
-          status: 'skip',
+          status: 'failed',
           isRetracted: false,
           retractionDetails: null,
           validation: null,
         };
-        updateBadge(citation.element, 'skip');
+        updateBadge(citation.element, 'failed');
       }
     }
+    syncPageBanner();
+    broadcastPageStatus();
   }
 }
 
@@ -228,23 +361,12 @@ async function scanPage() {
  * Handle check results from service worker
  */
 function handleCheckResults(results: { id: string; result: FullCheckResult }[]) {
-  let hasRetractedCurrentArticle = false;
-  let currentArticleResult: FullCheckResult | null = null;
-
   for (const { id, result } of results) {
     const checked = checkedCitations.get(id);
     if (!checked) continue;
 
     checked.checking = false;
     checked.result = result;
-
-    // Handle current article
-    if (checked.context === 'current-article') {
-      currentArticleResult = result;
-      if (result.isRetracted) {
-        hasRetractedCurrentArticle = true;
-      }
-    }
 
     // Update badge for references
     if (checked.context === 'reference') {
@@ -270,76 +392,10 @@ function handleCheckResults(results: { id: string; result: FullCheckResult }[]) 
     }
   }
 
-  // Show top banner if current article is problematic
-  if (currentArticleResult) {
-    if (hasRetractedCurrentArticle) {
-      injectTopBanner(
-        'retracted',
-        currentArticleResult.retractionDetails || undefined
-      );
-    } else if (currentArticleResult.status === 'concern') {
-      injectTopBanner(
-        'concern',
-        currentArticleResult.retractionDetails || undefined
-      );
-    } else if (currentArticleResult.status === 'correction') {
-      injectTopBanner(
-        'correction',
-        currentArticleResult.retractionDetails || undefined
-      );
-    } else if (currentArticleResult.status === 'fake-likely') {
-      injectTopBanner(
-        'fake-likely',
-        undefined,
-        currentArticleResult.validation?.discrepancies
-      );
-    } else if (currentArticleResult.status === 'fake-probably') {
-      injectTopBanner(
-        'fake-probably',
-        undefined,
-        currentArticleResult.validation?.discrepancies
-      );
-    }
-  }
-
-  // If no current article banner, show references banner if there are issues
-  if (!currentArticleResult || currentArticleResult.status === 'verified' || currentArticleResult.status === 'skip') {
-    // Count problematic references per status so the banner can convey
-    // severity accurately
-    const counts = { retracted: 0, notFound: 0, mismatch: 0, concern: 0, correction: 0 };
-
-    for (const [, checked] of checkedCitations) {
-      if (checked.context !== 'reference') continue;
-      const status = checked.result?.status;
-      if (status === 'retracted') counts.retracted++;
-      else if (status === 'fake-likely') counts.notFound++;
-      else if (status === 'fake-probably') counts.mismatch++;
-      else if (status === 'concern') counts.concern++;
-      else if (status === 'correction') counts.correction++;
-    }
-
-    injectReferencesBanner(counts, jumpToFirstReference);
-  }
+  syncPageBanner();
 
   // Broadcast results so an open sidebar can live-update
-  chrome.runtime
-    .sendMessage({
-      type: 'UPDATE_PAGE_STATUS',
-      payload: {
-        url: window.location.href,
-        citations: Array.from(checkedCitations.values()).map((c) => ({
-          id: c.id,
-          doi: c.doi,
-          title: c.title,
-          context: c.context,
-          status: c.result?.status || 'skip',
-          isRetracted: c.result?.isRetracted || false,
-          details: c.result?.retractionDetails,
-          validation: c.result?.validation,
-        })),
-      },
-    })
-    .catch(() => {});
+  broadcastPageStatus();
 }
 
 /**
@@ -348,7 +404,8 @@ function handleCheckResults(results: { id: string; result: FullCheckResult }[]) 
 function observePageChanges() {
   const observer = new MutationObserver((mutations) => {
     // Check if new DOIs might have been added
-    let shouldRescan = false;
+    let shouldRescan = window.location.href !== lastScannedUrl;
+    if (referenceSection && !referenceSection.isConnected) referenceSection = null;
 
     for (const mutation of mutations) {
       if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
@@ -363,15 +420,31 @@ function observePageChanges() {
             // Check if added element or its children contain DOI patterns.
             // Test textContent against a real DOI prefix pattern; a bare
             // "10." would fire on prices, versions, and timestamps.
+            const identifierSelector =
+              '[data-doi], a[href*="doi.org"], a[href*="pubmed.ncbi.nlm.nih.gov"]';
             if (
               /\b10\.\d{4,9}\//.test(element.textContent || '') ||
-              element.querySelector?.('[data-doi], a[href*="doi.org"]')
+              /\bPMID:\s*\d+\b/i.test(element.textContent || '') ||
+              element.matches?.(identifierSelector) ||
+              element.querySelector?.(identifierSelector) ||
+              (referenceSection &&
+                (referenceSection.contains(element) || element.contains(referenceSection))) ||
+              containsReferenceSectionMarker(element)
             ) {
               shouldRescan = true;
               break;
             }
           }
         }
+      }
+      if (
+        mutation.type === 'childList' &&
+        mutation.removedNodes.length > 0 &&
+        Array.from(checkedCitations.values()).some(
+          (citation) => citation.context === 'reference' && !citation.element.isConnected
+        )
+      ) {
+        shouldRescan = true;
       }
       if (shouldRescan) break;
     }
@@ -391,6 +464,14 @@ function observePageChanges() {
     childList: true,
     subtree: true,
   });
+
+  const rescanAfterNavigation = () => {
+    if (window.location.href === lastScannedUrl) return;
+    if (scanDebounceTimer) clearTimeout(scanDebounceTimer);
+    scanDebounceTimer = window.setTimeout(() => scanPage(), 100);
+  };
+  window.addEventListener('popstate', rescanAfterNavigation);
+  window.addEventListener('hashchange', rescanAfterNavigation);
 }
 
 /**
@@ -403,24 +484,15 @@ function handleMessage(
 ) {
   switch (message.type) {
     case 'GET_PAGE_STATUS':
-      sendResponse({
-        url: window.location.href,
-        citations: Array.from(checkedCitations.values()).map((c) => ({
-          id: c.id,
-          doi: c.doi,
-          title: c.title,
-          context: c.context,
-          status: c.result?.status || 'checking',
-          isRetracted: c.result?.isRetracted || false,
-          details: c.result?.retractionDetails,
-          validation: c.result?.validation,
-        })),
-      });
+      sendResponse(getPageStatus());
       return true;
 
     case 'RESCAN_PAGE':
       removeAllBadges();
       checkedCitations.clear();
+      processedReferenceCount = 0;
+      hasMoreReferences = false;
+      processedIdentifierKeys.clear();
       // Respond once the scan (including API checks) has finished, so the
       // popup can refresh its summary with complete results.
       scanPage()

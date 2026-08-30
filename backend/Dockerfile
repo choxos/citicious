@@ -23,6 +23,7 @@ COPY . .
 
 # Build TypeScript
 RUN npm run build
+RUN npm prune --omit=dev
 
 # Production image, copy all the files and run
 FROM base AS runner
