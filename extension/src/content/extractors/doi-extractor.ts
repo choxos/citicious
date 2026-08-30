@@ -9,7 +9,37 @@ const PMID_REGEX = /\bPMID:\s*(\d+)\b/i;
 const PMID_URL_REGEX = /pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/i;
 const REFERENCE_HEADING_REGEX =
   /^(?:\d+\.?\s*)?(?:references?|bibliography|works cited|literature cited|references and notes)$/;
+const REFERENCE_SECTION_SELECTORS = [
+  '[role="doc-bibliography"]',
+  '#references',
+  '#bibliography',
+  '#reference-section',
+  '#preview-section-references', // ScienceDirect abstract preview
+  '#ref-list',
+  '#bib',
+  '#Bib1', // Springer/Nature
+  'section#bibliography',
+  'section[data-title="References" i]',
+  'section[aria-label*="reference" i]',
+  'ol.references',
+  'dl.references',
+  '.references',
+  '.bibliography',
+  '.reference-list',
+  '.ref-list',
+  '.article-references',
+  '.c-article-references', // Nature
+];
+const REFERENCE_SECTION_SELECTOR = REFERENCE_SECTION_SELECTORS.join(', ');
 export const MAX_REFERENCES_PER_PAGE = 500;
+
+const hasReferenceContent = (element: Element): boolean =>
+  element.querySelector('li, p, div, tr') !== null ||
+  (element.textContent || '').trim().length > 40;
+
+const isReferenceHeading = (element: Element): boolean =>
+  /^H[1-4]$/.test(element.tagName) &&
+  REFERENCE_HEADING_REGEX.test(element.textContent?.trim().toLowerCase() || '');
 
 /**
  * Generate unique ID for a citation
@@ -171,38 +201,10 @@ export function extractCurrentArticleDoi(document: Document): ExtractedCitation 
  * Find the reference section in the document
  */
 export function findReferenceSection(document: Document): HTMLElement | null {
-  // Common selectors for reference sections (specific, not sidebar-like elements).
-  // Covers the markup used by major publishers (Springer/Nature, Elsevier,
-  // Wiley, PMC, JATS-derived sites) plus the ARIA DPUB bibliography role.
-  const selectors = [
-    '[role="doc-bibliography"]',
-    '#references',
-    '#bibliography',
-    '#reference-section',
-    '#preview-section-references', // ScienceDirect abstract preview
-    '#ref-list',
-    '#bib',
-    '#Bib1', // Springer/Nature
-    'section#bibliography',
-    'section[data-title="References" i]',
-    'section[aria-label*="reference" i]',
-    'ol.references',
-    'dl.references',
-    '.references',
-    '.bibliography',
-    '.reference-list',
-    '.ref-list',
-    '.article-references',
-    '.c-article-references', // Nature
-  ];
-
   // Jump-target anchors (e.g. PLOS's `<a id="references">`) and placeholder
   // nodes match the id selectors but contain no list; require actual content
   // before accepting a match so the real list further down is not shadowed.
-  const hasReferenceContent = (el: HTMLElement): boolean =>
-    el.querySelector('li, p, div, tr') !== null || (el.textContent || '').trim().length > 40;
-
-  for (const selector of selectors) {
+  for (const selector of REFERENCE_SECTION_SELECTORS) {
     const section = document.querySelector(selector) as HTMLElement;
     if (section && hasReferenceContent(section)) {
       return section;
@@ -214,8 +216,7 @@ export function findReferenceSection(document: Document): HTMLElement | null {
   // like "References & Citations".
   const headings = document.querySelectorAll('h1, h2, h3, h4');
   for (const heading of headings) {
-    const headingText = heading.textContent?.trim().toLowerCase() || '';
-    if (REFERENCE_HEADING_REGEX.test(headingText)) {
+    if (isReferenceHeading(heading)) {
       // Return the parent section or the heading's next siblings container
       const parent = heading.closest('section, article, .content, .paper-content, main') || heading.parentElement;
       if (parent) {
@@ -225,6 +226,18 @@ export function findReferenceSection(document: Document): HTMLElement | null {
   }
 
   return findReferenceListByContent(document);
+}
+
+export function containsReferenceSectionMarker(element: Element): boolean {
+  const nearestSection = element.closest(REFERENCE_SECTION_SELECTOR);
+  if (nearestSection && hasReferenceContent(nearestSection)) return true;
+  if (
+    Array.from(element.querySelectorAll(REFERENCE_SECTION_SELECTOR)).some(hasReferenceContent)
+  ) {
+    return true;
+  }
+  if (isReferenceHeading(element)) return true;
+  return Array.from(element.querySelectorAll('h1, h2, h3, h4')).some(isReferenceHeading);
 }
 
 /**

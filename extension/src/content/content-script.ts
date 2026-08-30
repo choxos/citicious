@@ -1,8 +1,8 @@
 import {
-  scanPageForDois,
   extractCurrentArticleDoi,
   findReferenceSection,
   extractReferenceDois,
+  containsReferenceSectionMarker,
   MAX_REFERENCES_PER_PAGE,
 } from './extractors/doi-extractor';
 import {
@@ -57,6 +57,7 @@ let lastScannedUrl = window.location.href;
 let processedReferenceCount = 0;
 let hasMoreReferences = false;
 const processedIdentifierKeys = new Set<string>();
+let referenceSection: HTMLElement | null = null;
 
 // Debounce timer for scanning
 let scanDebounceTimer: number | null = null;
@@ -224,6 +225,7 @@ export async function scanPage() {
     processedReferenceCount = 0;
     hasMoreReferences = false;
     processedIdentifierKeys.clear();
+    referenceSection = null;
     lastScannedUrl = window.location.href;
   }
 
@@ -234,7 +236,13 @@ export async function scanPage() {
   }
 
   // Extract citations from the page
-  const extracted = scanPageForDois(document, MAX_REFERENCES_PER_PAGE + 1);
+  const extracted: ExtractedCitation[] = [];
+  const currentArticle = extractCurrentArticleDoi(document);
+  if (currentArticle?.doi) extracted.push(currentArticle);
+  referenceSection = findReferenceSection(document);
+  if (referenceSection) {
+    extracted.push(...extractReferenceDois(referenceSection, MAX_REFERENCES_PER_PAGE + 1));
+  }
 
   const seenElements = new Map<HTMLElement, CheckedCitation>();
   for (const citation of checkedCitations.values()) {
@@ -397,7 +405,7 @@ function observePageChanges() {
   const observer = new MutationObserver((mutations) => {
     // Check if new DOIs might have been added
     let shouldRescan = window.location.href !== lastScannedUrl;
-    let referenceSection: HTMLElement | null | undefined;
+    if (referenceSection && !referenceSection.isConnected) referenceSection = null;
 
     for (const mutation of mutations) {
       if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
@@ -409,20 +417,19 @@ function observePageChanges() {
             if (element.closest?.('.citicious-badge, .citicious-banner')) {
               continue;
             }
-            if (referenceSection === undefined) {
-              referenceSection = findReferenceSection(document);
-            }
             // Check if added element or its children contain DOI patterns.
             // Test textContent against a real DOI prefix pattern; a bare
             // "10." would fire on prices, versions, and timestamps.
+            const identifierSelector =
+              '[data-doi], a[href*="doi.org"], a[href*="pubmed.ncbi.nlm.nih.gov"]';
             if (
               /\b10\.\d{4,9}\//.test(element.textContent || '') ||
               /\bPMID:\s*\d+\b/i.test(element.textContent || '') ||
+              element.matches?.(identifierSelector) ||
+              element.querySelector?.(identifierSelector) ||
               (referenceSection &&
                 (referenceSection.contains(element) || element.contains(referenceSection))) ||
-              element.querySelector?.(
-                '[data-doi], a[href*="doi.org"], a[href*="pubmed.ncbi.nlm.nih.gov"]'
-              )
+              containsReferenceSectionMarker(element)
             ) {
               shouldRescan = true;
               break;

@@ -13,12 +13,106 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.doUnmock('../extractors/doi-extractor');
   vi.resetModules();
   document.body.innerHTML = '';
   document.head.innerHTML = '';
 });
 
 describe('dynamic references', () => {
+  it('does not repeat full bibliography discovery for unrelated mutations', async () => {
+    document.head.innerHTML = '<meta name="citation_title" content="Test article">';
+    document.body.innerHTML = '<main><div id="dynamic-content"></div></main>';
+    Object.defineProperty(document, 'readyState', { configurable: true, value: 'complete' });
+
+    let mutationCallback: MutationCallback | undefined;
+    class TestMutationObserver {
+      constructor(callback: MutationCallback) {
+        mutationCallback = callback;
+      }
+      observe() {}
+      disconnect() {}
+      takeRecords() { return []; }
+    }
+    vi.stubGlobal('MutationObserver', TestMutationObserver);
+
+    const extractor = await vi.importActual<typeof import('../extractors/doi-extractor')>(
+      '../extractors/doi-extractor'
+    );
+    const findReferenceSection = vi.fn(extractor.findReferenceSection);
+    vi.doMock('../extractors/doi-extractor', () => ({ ...extractor, findReferenceSection }));
+    const sendMessage = vi.fn(
+      async (message: { type: string; payload?: Array<{ id: string }> }) => {
+        if (message.type !== 'CHECK_BATCH') return { success: true };
+        return {
+          results: (message.payload || []).map((citation) => ({
+            id: citation.id,
+            result: result('not-checkable'),
+          })),
+        };
+      }
+    );
+    vi.stubGlobal('chrome', {
+      runtime: {
+        sendMessage,
+        onMessage: { addListener: vi.fn() },
+      },
+    });
+
+    await import('../content-script');
+    expect(mutationCallback).toBeDefined();
+    const callsAfterInitialScan = findReferenceSection.mock.calls.length;
+    const container = document.getElementById('dynamic-content')!;
+
+    for (let index = 0; index < 3; index++) {
+      const unrelated = document.createElement('span');
+      unrelated.textContent = `Unrelated update ${index}`;
+      container.append(unrelated);
+      mutationCallback!(
+        [{
+          type: 'childList',
+          target: container,
+          addedNodes: [unrelated],
+          removedNodes: [],
+        } as unknown as MutationRecord],
+        {} as MutationObserver
+      );
+    }
+
+    expect(findReferenceSection).toHaveBeenCalledTimes(callsAfterInitialScan);
+
+    vi.useFakeTimers();
+    const bibliography = document.createElement('ol');
+    bibliography.className = 'reference-list';
+    container.append(bibliography);
+    mutationCallback!(
+      [{
+        type: 'childList',
+        target: container,
+        addedNodes: [bibliography],
+        removedNodes: [],
+      } as unknown as MutationRecord],
+      {} as MutationObserver
+    );
+    const lateReference = document.createElement('li');
+    lateReference.id = 'late-reference';
+    lateReference.textContent = 'Late reference without an identifier';
+    bibliography.append(lateReference);
+    mutationCallback!(
+      [{
+        type: 'childList',
+        target: bibliography,
+        addedNodes: [lateReference],
+        removedNodes: [],
+      } as unknown as MutationRecord],
+      {} as MutationObserver
+    );
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(findReferenceSection).toHaveBeenCalledTimes(callsAfterInitialScan + 1);
+    expect(document.getElementById('late-reference')?.textContent).toContain('NOT CHECKED');
+  });
+
   it('rescans an identifierless entry appended inside a bibliography', async () => {
     document.head.innerHTML = '<meta name="citation_title" content="Test article">';
     document.body.innerHTML = `
