@@ -3,7 +3,7 @@ import { parse } from 'csv-parse';
 import { PrismaClient } from '@prisma/client';
 import { config } from 'dotenv';
 
-config();
+config({ quiet: true });
 
 const prisma = new PrismaClient();
 

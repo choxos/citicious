@@ -8,7 +8,7 @@ import { citationRoutes } from './routes/citation.routes.js';
 import { healthRoutes } from './routes/health.routes.js';
 
 // Load environment variables
-config();
+config({ quiet: true });
 
 const app = Fastify({
   logger: process.env.NODE_ENV === 'production'
