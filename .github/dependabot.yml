@@ -22,9 +22,11 @@ updates:
     ignore:
       - dependency-name: prisma
         versions:
+          - 6.x
           - 7.x
       - dependency-name: "@prisma/client"
         versions:
+          - 6.x
           - 7.x
       - dependency-name: "@types/node"
         update-types:
