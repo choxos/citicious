@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { citiciousAPI } from '../api-client';
+import { BATCH_DEADLINE_MS, citiciousAPI } from '../api-client';
 
 // ---- fetch mocking helpers -------------------------------------------------
 
@@ -59,6 +59,7 @@ const resolverExists = mockResponse(200, { responseCode: 1, values: [] });
 const resolverNotFound = mockResponse(200, { responseCode: 100 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -269,6 +270,22 @@ describe('checkCitation by DOI', () => {
     }
   });
 
+  it('propagates a caller abort signal to every external lookup', async () => {
+    const controller = new AbortController();
+    installFetch({
+      crossref: mockResponse(404, {}),
+      openalexDoi: mockResponse(404, {}),
+      resolver: resolverExists,
+    });
+    await citiciousAPI.checkCitation({ doi: '10.5281/zenodo.123456' }, controller.signal);
+    const signals = vi.mocked(fetch).mock.calls.map(([, init]) => init?.signal);
+
+    controller.abort();
+
+    expect(signals).toHaveLength(3);
+    for (const signal of signals) expect(signal?.aborted).toBe(true);
+  });
+
   it('flags fake-probably only on a critical title mismatch with a real provided title', async () => {
     installFetch({ crossref: crossrefWork() });
     const result = await citiciousAPI.checkCitation({
@@ -312,5 +329,32 @@ describe('checkCitation with no identifier', () => {
     installFetch({});
     const result = await citiciousAPI.checkCitation({ title: 'Some title' });
     expect(result.status).toBe('not-checkable');
+  });
+});
+
+describe('checkBatch', () => {
+  it('stops starting work and aborts active work after the overall deadline', async () => {
+    vi.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    const checkCitation = vi
+      .spyOn(citiciousAPI, 'checkCitation')
+      .mockImplementation((_citation, signal) => {
+        signals.push(signal!);
+        return new Promise<never>(() => {});
+      });
+    const pending = citiciousAPI.checkBatch(
+      Array.from({ length: 6 }, (_, index) => ({
+        id: String(index),
+        doi: `10.1234/${index}`,
+        context: 'reference' as const,
+        element: {} as HTMLElement,
+      }))
+    );
+
+    await vi.advanceTimersByTimeAsync(BATCH_DEADLINE_MS);
+
+    expect(await pending).toEqual(new Map());
+    expect(checkCitation).toHaveBeenCalledTimes(5);
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
   });
 });

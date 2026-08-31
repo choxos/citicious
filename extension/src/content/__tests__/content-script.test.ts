@@ -178,6 +178,81 @@ describe('dynamic references', () => {
     expect(appended.textContent).toContain('NOT CHECKED');
   });
 
+  it('rescans when a reference identifier attribute changes', async () => {
+    document.head.innerHTML = '<meta name="citation_title" content="Test article">';
+    document.body.innerHTML = `
+      <section role="doc-bibliography">
+        <div role="listitem" id="reference">
+          <a id="doi-link" href="https://doi.org/10.1000/original">Original DOI</a>
+        </div>
+      </section>`;
+    Object.defineProperty(document, 'readyState', { configurable: true, value: 'complete' });
+
+    let mutationCallback: MutationCallback | undefined;
+    let observerOptions: MutationObserverInit | undefined;
+    class TestMutationObserver {
+      constructor(callback: MutationCallback) {
+        mutationCallback = callback;
+      }
+      observe(_target: Node, options: MutationObserverInit) {
+        observerOptions = options;
+      }
+      disconnect() {}
+      takeRecords() { return []; }
+    }
+    vi.stubGlobal('MutationObserver', TestMutationObserver);
+
+    const sendMessage = vi.fn(
+      async (message: { type: string; payload?: Array<{ id: string; doi?: string }> }) => {
+        if (message.type !== 'CHECK_BATCH') return { success: true };
+        return {
+          results: (message.payload || []).map((citation) => ({
+            id: citation.id,
+            result: result('verified'),
+          })),
+        };
+      }
+    );
+    vi.stubGlobal('chrome', {
+      runtime: {
+        sendMessage,
+        onMessage: { addListener: vi.fn() },
+      },
+    });
+
+    await import('../content-script');
+    await vi.waitFor(() => {
+      expect(sendMessage.mock.calls.filter(([message]) => message.type === 'CHECK_BATCH')).toHaveLength(1);
+    });
+    expect(observerOptions).toMatchObject({
+      attributes: true,
+      attributeFilter: ['href', 'data-doi'],
+      childList: true,
+      subtree: true,
+    });
+
+    vi.useFakeTimers();
+    const link = document.getElementById('doi-link') as HTMLAnchorElement;
+    link.href = 'https://doi.org/10.1000/replacement';
+    mutationCallback!(
+      [{
+        type: 'attributes',
+        target: link,
+        attributeName: 'href',
+        oldValue: 'https://doi.org/10.1000/original',
+      } as MutationRecord],
+      {} as MutationObserver
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.waitFor(() => {
+      const batches = sendMessage.mock.calls.filter(
+        ([message]) => message.type === 'CHECK_BATCH'
+      );
+      expect(batches).toHaveLength(2);
+      expect(batches[1][0].payload?.[0].doi).toBe('10.1000/replacement');
+    });
+  });
+
   it('clears the summary banner after the final flag disappears, including failed replacements', async () => {
     document.head.innerHTML = '<meta name="citation_title" content="Test article">';
     document.body.innerHTML = `
@@ -409,5 +484,76 @@ describe('dynamic references', () => {
       ([message]) => message.type === 'UPDATE_PAGE_STATUS'
     );
     expect(updates.at(-1)?.[0].payload.hasMoreReferences).toBe(true);
+  });
+
+  it('caps same-page current-article identity churn', async () => {
+    document.head.innerHTML = '<meta name="citation_title" content="Test article">';
+    document.body.innerHTML = '<article data-doi="10.1000/article-0"></article>';
+    Object.defineProperty(document, 'readyState', { configurable: true, value: 'complete' });
+
+    const sendMessage = vi.fn(
+      async (message: { type: string; payload?: Array<{ id: string }> }) => {
+        if (message.type !== 'CHECK_BATCH') return { success: true };
+        return {
+          results: (message.payload || []).map((citation) => ({
+            id: citation.id,
+            result: result('retracted'),
+          })),
+        };
+      }
+    );
+    vi.stubGlobal('chrome', {
+      runtime: {
+        sendMessage,
+        onMessage: { addListener: vi.fn() },
+      },
+    });
+
+    const { scanPage } = await import('../content-script');
+    await vi.waitFor(() => {
+      expect(sendMessage.mock.calls.some(([message]) => message.type === 'CHECK_BATCH')).toBe(true);
+    });
+    await vi.waitFor(() => {
+      expect(document.getElementById('citicious-top-banner')).not.toBeNull();
+    });
+    const article = document.querySelector('article')!;
+    for (let index = 1; index < 10; index += 1) {
+      article.setAttribute('data-doi', `10.1000/article-${index}`);
+      await scanPage();
+    }
+
+    const batches = () =>
+      sendMessage.mock.calls.filter(([message]) => message.type === 'CHECK_BATCH');
+    expect(batches()).toHaveLength(5);
+
+    let updates = sendMessage.mock.calls.filter(
+      ([message]) => message.type === 'UPDATE_PAGE_STATUS'
+    );
+    expect(updates.at(-1)?.[0].payload.citations).toEqual([
+      expect.objectContaining({
+        context: 'current-article',
+        doi: '10.1000/article-9',
+        status: 'skip',
+      }),
+    ]);
+    expect(document.getElementById('citicious-top-banner')).toBeNull();
+
+    for (let index = 10; index < 20; index += 1) {
+      window.history.replaceState(null, '', `#churn-${index}`);
+      article.setAttribute('data-doi', `10.1000/article-${index}`);
+      await scanPage();
+    }
+
+    expect(batches()).toHaveLength(5);
+    updates = sendMessage.mock.calls.filter(
+      ([message]) => message.type === 'UPDATE_PAGE_STATUS'
+    );
+    expect(updates.at(-1)?.[0].payload.citations).toEqual([
+      expect.objectContaining({
+        context: 'current-article',
+        doi: '10.1000/article-19',
+        status: 'skip',
+      }),
+    ]);
   });
 });

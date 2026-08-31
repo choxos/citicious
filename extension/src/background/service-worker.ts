@@ -29,6 +29,13 @@ const FAILED_RESULT: FullCheckResult = {
   validation: null,
 };
 
+const DEFERRED_RESULT: FullCheckResult = {
+  status: 'skip',
+  isRetracted: false,
+  retractionDetails: null,
+  validation: null,
+};
+
 /**
  * Read a cached result, honoring the TTL. Expired entries are removed.
  */
@@ -218,14 +225,14 @@ export async function handleBatchCheck(
   }
 
   if (fresh.length > 0) {
-    const batch = citiciousAPI.checkBatch(fresh.map(identifierOnly)).catch(() => new Map());
+    const batch = citiciousAPI.checkBatch(fresh.map(identifierOnly));
     for (const citation of fresh) {
       const key = getCacheKey(citation);
       waitingByKey.set(
         key,
         storeInFlight(
           key,
-          batch.then((results) => results.get(citation.id) || FAILED_RESULT)
+          batch.then((results) => results.get(citation.id) || DEFERRED_RESULT)
         )
       );
     }

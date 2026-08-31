@@ -163,6 +163,19 @@ describe('injectReferencesBanner', () => {
 });
 
 describe('injectBadge tooltips', () => {
+  it('updates a table-row badge in place', () => {
+    document.body.innerHTML = `
+      <table><tbody><tr id="ref"><td>Some reference</td></tr></tbody></table>`;
+    const el = document.getElementById('ref') as HTMLElement;
+    injectBadge(el, 'checking');
+    updateBadge(el, 'verified');
+
+    expect(el.querySelectorAll('.citicious-badge')).toHaveLength(1);
+    expect(document.querySelectorAll('.citicious-badge')).toHaveLength(1);
+    expect(el.querySelector('.citicious-badge')?.textContent).toContain('Verified');
+    expect(el.querySelector('td > .citicious-badge')).not.toBeNull();
+  });
+
   it('updates a definition-list badge in place', () => {
     document.body.innerHTML = '<dl><dd id="ref">Some reference</dd></dl>';
     const el = document.getElementById('ref') as HTMLElement;
@@ -215,6 +228,14 @@ describe('injectBadge tooltips', () => {
     const second = injectBadge(document.getElementById('second') as HTMLElement, 'failed')!;
     expect(first.querySelector('.citicious-badge__label')?.textContent).toBe('NOT CHECKED');
     expect(second.querySelector('.citicious-badge__label')?.textContent).toBe('CHECK FAILED');
+  });
+
+  it('labels deadline-deferred references without reporting a lookup failure', () => {
+    document.body.innerHTML = '<li id="ref">Deferred reference</li>';
+    const badge = injectBadge(document.getElementById('ref') as HTMLElement, 'skip')!;
+    expect(badge.querySelector('.citicious-badge__label')?.textContent).toBe('CHECK DEFERRED');
+    expect(badge.title).toContain('page time limit');
+    expect(badge.title).not.toContain('failed');
   });
 });
 

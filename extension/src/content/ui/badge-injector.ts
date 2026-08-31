@@ -14,7 +14,7 @@ const BADGE_CONFIG: Partial<Record<CitationStatus, { icon: string; label: string
   'fake-probably': { icon: '!', label: 'TITLE MISMATCH', className: 'citicious-badge--fake-probably' },
   'not-checkable': { icon: '—', label: 'NOT CHECKED', className: 'citicious-badge--unverified' },
   failed: { icon: '!', label: 'CHECK FAILED', className: 'citicious-badge--unverified' },
-  skip: { icon: '!', label: 'CHECK FAILED', className: 'citicious-badge--unverified' },
+  skip: { icon: '…', label: 'CHECK DEFERRED', className: 'citicious-badge--unverified' },
   checking: { icon: '⟳', label: 'Checking...', className: 'citicious-badge--checking' },
 };
 
@@ -448,8 +448,9 @@ function badgeTooltip(
     case 'not-checkable':
       return 'Not checked because this reference has no DOI or PubMed ID';
     case 'failed':
-    case 'skip':
       return 'The reference could not be checked because an external lookup failed';
+    case 'skip':
+      return 'Checking was deferred after the page time limit; rescan to retry';
     default:
       return '';
   }
@@ -496,21 +497,11 @@ export function injectBadge(
     badge.setAttribute('aria-label', tooltip);
   }
 
-  // Append at the end of block reference containers. Prepending collides
-  // with list numbering on publishers that use hanging indents (the badge
-  // gets pulled left over the "7." marker); the end of the reference, next
-  // to the publisher's own outbound links, is collision-free.
-  if (
-    element.tagName === 'LI' ||
-    element.tagName === 'P' ||
-    element.tagName === 'DIV' ||
-    element.tagName === 'DD'
-  ) {
-    element.appendChild(badge);
-  } else {
-    // For inline elements, insert after
-    element.insertAdjacentElement('afterend', badge);
-  }
+  const badgeContainer =
+    element.tagName === 'TR'
+      ? element.querySelector<HTMLElement>('td:last-of-type, th:last-of-type') || element
+      : element;
+  badgeContainer.appendChild(badge);
 
   return badge;
 }

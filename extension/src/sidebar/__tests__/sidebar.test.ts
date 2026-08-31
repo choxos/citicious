@@ -8,17 +8,20 @@ let handleRuntimeMessage: (
   sender: { tab?: { id?: number } }
 ) => void;
 let handleTabActivated: (activeInfo: { tabId: number; windowId: number }) => void;
+let handleTabUpdated: (tabId: number, changeInfo: { status?: string }) => void;
 let sendTabMessage: ReturnType<typeof vi.fn>;
 
 beforeAll(async () => {
   const addListener = vi.fn();
   const addTabActivatedListener = vi.fn();
+  const addTabUpdatedListener = vi.fn();
   sendTabMessage = vi.fn().mockResolvedValue(undefined);
   vi.stubGlobal('chrome', {
     tabs: {
       query: vi.fn().mockResolvedValue([{ id: 7, windowId: 1 }]),
       sendMessage: sendTabMessage,
       onActivated: { addListener: addTabActivatedListener },
+      onUpdated: { addListener: addTabUpdatedListener },
     },
     runtime: {
       onMessage: { addListener },
@@ -27,8 +30,10 @@ beforeAll(async () => {
   ({ renderCitationCard } = await import('../sidebar'));
   await vi.waitFor(() => expect(addListener).toHaveBeenCalledOnce());
   await vi.waitFor(() => expect(addTabActivatedListener).toHaveBeenCalledOnce());
+  await vi.waitFor(() => expect(addTabUpdatedListener).toHaveBeenCalledOnce());
   handleRuntimeMessage = addListener.mock.calls[0][0];
   handleTabActivated = addTabActivatedListener.mock.calls[0][0];
+  handleTabUpdated = addTabUpdatedListener.mock.calls[0][0];
 });
 
 describe('renderCitationCard', () => {
@@ -60,6 +65,18 @@ describe('renderCitationCard', () => {
     Reflect.deleteProperty(citation.validation!, 'discrepancies');
     expect(renderCitationCard(citation)).toContain('Registered DOI');
   });
+
+  it('describes deadline-deferred checks without reporting a lookup failure', () => {
+    const html = renderCitationCard({
+      id: 'deferred',
+      doi: '10.1234/deferred',
+      context: 'reference',
+      status: 'skip',
+      isRetracted: false,
+    });
+    expect(html).toContain('Check deferred after the page time limit');
+    expect(html).not.toContain('External lookup failed');
+  });
 });
 
 describe('sidebar status updates', () => {
@@ -87,5 +104,26 @@ describe('sidebar status updates', () => {
     });
     handleRuntimeMessage(message, { tab: { id: 8 } });
     expect(document.getElementById('content')?.textContent).toContain('No citations found');
+  });
+
+  it('clears stale status while the active tab navigates', async () => {
+    document.body.innerHTML = `
+      <span id="retracted-count">4</span>
+      <span id="fake-count">3</span>
+      <span id="verified-count">2</span>
+      <div id="content">Old article results</div>
+    `;
+    handleTabActivated({ tabId: 7, windowId: 1 });
+    handleTabUpdated(7, { status: 'loading' });
+
+    expect(document.getElementById('content')?.textContent).toContain('Checking this page');
+    expect(document.getElementById('retracted-count')?.textContent).toBe('0');
+    expect(document.getElementById('fake-count')?.textContent).toBe('0');
+    expect(document.getElementById('verified-count')?.textContent).toBe('0');
+
+    handleTabUpdated(7, { status: 'complete' });
+    await vi.waitFor(() => {
+      expect(sendTabMessage).toHaveBeenLastCalledWith(7, { type: 'GET_PAGE_STATUS' });
+    });
   });
 });

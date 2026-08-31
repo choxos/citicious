@@ -108,10 +108,11 @@ async function loadPageStatus() {
       const verified = references.filter((c) => c.status === 'verified');
       const pending = references.filter((c) => c.status === 'checking').length;
       const notCheckable = references.filter((c) => c.status === 'not-checkable').length;
-      const failed = references.filter((c) => c.status === 'failed' || c.status === 'skip').length;
-      const checked = references.length - pending - notCheckable - failed;
+      const failed = references.filter((c) => c.status === 'failed').length;
+      const deferred = references.filter((c) => c.status === 'skip').length;
+      const checked = references.length - pending - notCheckable - failed - deferred;
       const problematic = retracted.length + concerns.length + suspicious.length;
-      const coverageText = `${checked}/${references.length}${hasMoreReferences ? ' scanned references checked' : ' references checked'}${notCheckable ? ` · ${notCheckable} without DOI/PMID` : ''}${failed ? ` · ${failed} failed` : ''}${pending ? ` · ${pending} pending` : ''}${hasMoreReferences ? ' · additional references not scanned (500-reference safety limit)' : ''}`;
+      const coverageText = `${checked}/${references.length}${hasMoreReferences ? ' scanned references checked' : ' references checked'}${notCheckable ? ` · ${notCheckable} without DOI/PMID` : ''}${failed ? ` · ${failed} failed` : ''}${deferred ? ` · ${deferred} deferred` : ''}${pending ? ` · ${pending} pending` : ''}${hasMoreReferences ? ' · additional references not scanned (500-reference safety limit)' : ''}`;
 
       // Update stats
       document.getElementById('retracted-count')!.textContent = String(retracted.length);
@@ -156,7 +157,7 @@ async function loadPageStatus() {
               <div class="status-text">${coverageText}</div>
             </div>
         `;
-      } else if (notCheckable > 0 || failed > 0 || hasMoreReferences) {
+      } else if (notCheckable > 0 || failed > 0 || deferred > 0 || hasMoreReferences) {
         statusEl.innerHTML = `
             <div class="status-box">
               <div class="status-icon">ℹ</div>

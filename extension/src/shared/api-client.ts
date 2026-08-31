@@ -11,6 +11,7 @@ const DOI_RESOLVER_URL = 'https://doi.org/api/handles';
 const CONTACT_EMAIL = 'choxos@users.noreply.github.com';
 const USER_AGENT = `Citicious/0.2.0 (mailto:${CONTACT_EMAIL})`;
 const REQUEST_TIMEOUT_MS = 10_000;
+export const BATCH_DEADLINE_MS = 60_000;
 
 const NOT_CHECKABLE_RESULT: FullCheckResult = {
   status: 'not-checkable',
@@ -55,7 +56,7 @@ async function fetchWithRetry(
 ): Promise<Response> {
   const response = await fetch(url, {
     ...options,
-    signal: options.signal || AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: requestSignal(options.signal),
   });
   if (response.status === 429 && retries > 0) {
     const retryAfter = parseInt(response.headers.get('Retry-After') || '1', 10);
@@ -64,6 +65,30 @@ async function fetchWithRetry(
     return fetchWithRetry(url, options, retries - 1);
   }
   return response;
+}
+
+function requestSignal(signal?: AbortSignal | null): AbortSignal {
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  if (!signal) return timeout;
+
+  // AbortSignal.any starts in Chrome 116; the extension supports Chrome 114.
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal.aborted || timeout.aborted) {
+    abort();
+  } else {
+    signal.addEventListener('abort', abort, { once: true });
+    timeout.addEventListener('abort', abort, { once: true });
+    controller.signal.addEventListener(
+      'abort',
+      () => {
+        signal.removeEventListener('abort', abort);
+        timeout.removeEventListener('abort', abort);
+      },
+      { once: true }
+    );
+  }
+  return controller.signal;
 }
 
 /**
@@ -91,7 +116,8 @@ function stringSimilarity(a: string, b: string): number {
  * Check CrossRef for a DOI
  */
 async function checkCrossRef(
-  doi: string
+  doi: string,
+  signal?: AbortSignal
 ): Promise<{ status: 'found' | 'not_found' | 'error'; work?: any }> {
   const normalizedDoi = normalizeDoi(doi);
 
@@ -103,6 +129,7 @@ async function checkCrossRef(
           'User-Agent': USER_AGENT,
           'Accept': 'application/json',
         },
+        signal,
       }
     );
 
@@ -120,7 +147,8 @@ async function checkCrossRef(
  * Check OpenAlex for a DOI
  */
 async function checkOpenAlex(
-  doi: string
+  doi: string,
+  signal?: AbortSignal
 ): Promise<{ status: 'found' | 'not_found' | 'error'; work?: any }> {
   const normalizedDoi = normalizeDoi(doi);
 
@@ -132,6 +160,7 @@ async function checkOpenAlex(
           'Accept': 'application/json',
           'User-Agent': USER_AGENT,
         },
+        signal,
       }
     );
 
@@ -149,7 +178,8 @@ async function checkOpenAlex(
  * Look up an OpenAlex work by PubMed ID.
  */
 async function checkOpenAlexByPmid(
-  pmid: string
+  pmid: string,
+  signal?: AbortSignal
 ): Promise<{ status: 'found' | 'not_found' | 'error'; work?: any }> {
   try {
     const response = await fetchWithRetry(
@@ -159,6 +189,7 @@ async function checkOpenAlexByPmid(
           'Accept': 'application/json',
           'User-Agent': USER_AGENT,
         },
+        signal,
       }
     );
 
@@ -176,13 +207,16 @@ async function checkOpenAlexByPmid(
  * Authoritative existence check via the DOI resolver (Handle System).
  * responseCode 1 = handle exists; anything else (100/200/...) = not registered.
  */
-async function checkDoiResolver(doi: string): Promise<'exists' | 'not_found' | 'error'> {
+async function checkDoiResolver(
+  doi: string,
+  signal?: AbortSignal
+): Promise<'exists' | 'not_found' | 'error'> {
   const normalizedDoi = normalizeDoi(doi);
 
   try {
     const response = await fetchWithRetry(
       `${DOI_RESOLVER_URL}/${encodeDoiPath(normalizedDoi)}`,
-      { headers: { 'Accept': 'application/json' } }
+      { headers: { 'Accept': 'application/json' }, signal }
     );
 
     if (response.status === 404) return 'not_found';
@@ -505,17 +539,20 @@ export class CiticiousAPI {
   /**
    * Check a single citation (validation + retraction status)
    */
-  async checkCitation(citation: {
-    doi?: string;
-    pmid?: string;
-    url?: string;
-    title?: string;
-    authors?: string[];
-    year?: number;
-    journal?: string;
-  }): Promise<FullCheckResult> {
-    if (citation.doi) return this.checkByDoi(citation);
-    if (citation.pmid) return this.checkByPmid(citation);
+  async checkCitation(
+    citation: {
+      doi?: string;
+      pmid?: string;
+      url?: string;
+      title?: string;
+      authors?: string[];
+      year?: number;
+      journal?: string;
+    },
+    signal?: AbortSignal
+  ): Promise<FullCheckResult> {
+    if (citation.doi) return this.checkByDoi(citation, signal);
+    if (citation.pmid) return this.checkByPmid(citation, signal);
     return NOT_CHECKABLE_RESULT;
   }
 
@@ -583,18 +620,21 @@ export class CiticiousAPI {
   /**
    * Check a citation by DOI.
    */
-  private async checkByDoi(citation: {
-    doi?: string;
-    title?: string;
-    authors?: string[];
-    year?: number;
-    journal?: string;
-  }): Promise<FullCheckResult> {
+  private async checkByDoi(
+    citation: {
+      doi?: string;
+      title?: string;
+      authors?: string[];
+      year?: number;
+      journal?: string;
+    },
+    signal?: AbortSignal
+  ): Promise<FullCheckResult> {
     if (!citation.doi) return NOT_CHECKABLE_RESULT;
 
     const [crossrefResult, openalexResult] = await Promise.all([
-      checkCrossRef(citation.doi),
-      checkOpenAlex(citation.doi),
+      checkCrossRef(citation.doi, signal),
+      checkOpenAlex(citation.doi, signal),
     ]);
 
     if (crossrefResult.status === 'found') {
@@ -625,7 +665,7 @@ export class CiticiousAPI {
 
     // At least one DB definitively reported the DOI as not found. Consult the
     // authoritative DOI resolver before accusing the reference of being fake.
-    const resolver = await checkDoiResolver(citation.doi);
+    const resolver = await checkDoiResolver(citation.doi, signal);
     if (resolver === 'exists') {
       // Real DOI, just not in scholarly databases (e.g. dataset, software, thesis).
       return unverifiedResult(citation.doi);
@@ -641,16 +681,19 @@ export class CiticiousAPI {
    * not flag "fake" on a PMID miss; we resolve via OpenAlex and, when a DOI is
    * found, defer to the full DOI pipeline.
    */
-  private async checkByPmid(citation: {
-    pmid?: string;
-    title?: string;
-    authors?: string[];
-    year?: number;
-    journal?: string;
-  }): Promise<FullCheckResult> {
+  private async checkByPmid(
+    citation: {
+      pmid?: string;
+      title?: string;
+      authors?: string[];
+      year?: number;
+      journal?: string;
+    },
+    signal?: AbortSignal
+  ): Promise<FullCheckResult> {
     if (!citation.pmid) return NOT_CHECKABLE_RESULT;
 
-    const result = await checkOpenAlexByPmid(citation.pmid);
+    const result = await checkOpenAlexByPmid(citation.pmid, signal);
     if (result.status === 'error') return FAILED_RESULT;
     if (result.status === 'not_found') {
       return {
@@ -677,7 +720,7 @@ export class CiticiousAPI {
     const work = result.work;
     const doi = work.doi ? normalizeDoi(work.doi) : undefined;
     if (doi) {
-      return this.checkByDoi({ ...citation, doi });
+      return this.checkByDoi({ ...citation, doi }, signal);
     }
 
     // Found in OpenAlex but has no DOI
@@ -698,23 +741,45 @@ export class CiticiousAPI {
   ): Promise<Map<string, FullCheckResult>> {
     const results = new Map<string, FullCheckResult>();
     const BATCH_SIZE = 5;
+    const deadline = Date.now() + BATCH_DEADLINE_MS;
+    const controller = new AbortController();
 
     for (let i = 0; i < citations.length; i += BATCH_SIZE) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) break;
       const batch = citations.slice(i, i + BATCH_SIZE);
-      const batchResults = await Promise.all(
-        batch.map(async (c) => {
-          const result = await this.checkCitation({
-            doi: c.doi,
-            pmid: c.pmid,
-            url: c.url,
-            title: c.title,
-            authors: c.authors,
-            year: c.year,
-            journal: c.journal,
-          });
-          return { id: c.id, result };
-        })
-      );
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      let batchResults: { id: string; result: FullCheckResult }[] | null;
+      try {
+        batchResults = await Promise.race([
+          Promise.all(
+            batch.map(async (c) => {
+              const result = await this.checkCitation(
+                {
+                  doi: c.doi,
+                  pmid: c.pmid,
+                  url: c.url,
+                  title: c.title,
+                  authors: c.authors,
+                  year: c.year,
+                  journal: c.journal,
+                },
+                controller.signal
+              );
+              return { id: c.id, result };
+            })
+          ),
+          new Promise<null>((resolve) => {
+            timeout = setTimeout(() => {
+              controller.abort();
+              resolve(null);
+            }, remainingMs);
+          }),
+        ]);
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+      if (!batchResults) break;
 
       for (const { id, result } of batchResults) {
         results.set(id, result);

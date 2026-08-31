@@ -34,6 +34,8 @@ const REFERENCE_SECTION_SELECTORS = [
 ];
 const REFERENCE_SECTION_SELECTOR = REFERENCE_SECTION_SELECTORS.join(', ');
 export const MAX_REFERENCES_PER_PAGE = 500;
+// ponytail: cap hostile bibliography DOM traversal; raise only if real publisher markup exceeds it.
+const MAX_REFERENCE_SCAN_ELEMENTS = 20_000;
 
 const hasReferenceContent = (element: Element): boolean =>
   element.querySelector('li, p, div, tr') !== null ||
@@ -126,7 +128,10 @@ function currentArticleCitation(raw: string, document: Document): ExtractedCitat
 /**
  * Extract the current article's DOI (the paper being viewed)
  */
-export function extractCurrentArticleDoi(document: Document): ExtractedCitation | null {
+export function extractCurrentArticleDoi(
+  document: Document,
+  referenceSection = findReferenceSection(document)
+): ExtractedCitation | null {
   // Method 1: Check meta tags
   const metaSelectors = [
     'meta[name="citation_doi"]',
@@ -157,10 +162,11 @@ export function extractCurrentArticleDoi(document: Document): ExtractedCitation 
     }
   }
 
-  // Method 3: Check data attributes (values are unconstrained, so the syntax
-  // check in currentArticleCitation is what keeps garbage out)
-  const dataDoiElements = document.querySelectorAll('[data-doi]');
+  const dataDoiElements = document.querySelectorAll(
+    'article[data-doi], main[data-doi], [itemtype*="ScholarlyArticle"][data-doi]'
+  );
   for (const el of dataDoiElements) {
+    if (referenceSection?.contains(el)) continue;
     const doi = el.getAttribute('data-doi');
     if (doi) {
       const citation = currentArticleCitation(doi, document);
@@ -180,6 +186,7 @@ export function extractCurrentArticleDoi(document: Document): ExtractedCitation 
   for (const selector of doiContainerSelectors) {
     const elements = document.querySelectorAll(selector);
     for (const el of elements) {
+      if (referenceSection?.contains(el)) continue;
       const text = el.textContent || '';
       const match = text.match(/10\.\d{4,9}\/[^\s"'<>]+/);
       if (match) {
@@ -265,11 +272,14 @@ function findReferenceListByContent(document: Document): HTMLElement | null {
     hasDescendantEntry: boolean;
     identifierItems: number;
     textSize: number;
+    hasIdentifier: boolean;
     excluded: boolean;
   }> = [];
   let current = root.firstElementChild as HTMLElement | null;
+  let visited = 0;
 
-  while (current) {
+  while (current && visited < MAX_REFERENCE_SCAN_ELEMENTS) {
+    visited += 1;
     const parent = stack[stack.length - 1];
     const className = typeof current.className === 'string' ? current.className : '';
     const hint = `${current.id} ${className}`;
@@ -283,6 +293,7 @@ function findReferenceListByContent(document: Document): HTMLElement | null {
       hasDescendantEntry: false,
       identifierItems: 0,
       textSize,
+      hasIdentifier: hasOwnReferenceIdentifier(current),
       excluded:
         (parent?.excluded || false) ||
         current.matches(EXCLUDED_ANCESTORS) ||
@@ -299,14 +310,7 @@ function findReferenceListByContent(document: Document): HTMLElement | null {
     while (stack.length > 0) {
       const completed = stack.pop()!;
       if (completed.matchesEntry && !completed.hasDescendantEntry) {
-        const text = completed.element.textContent || '';
-        const hasIdentifier =
-          /\b10\.\d{4,9}\//.test(text) ||
-          PMID_REGEX.test(text) ||
-          completed.element.querySelector(
-            'a[href*="doi.org"], a[href*="pubmed.ncbi.nlm.nih.gov"]'
-          ) !== null;
-        if (hasIdentifier) completed.identifierItems++;
+        if (completed.hasIdentifier) completed.identifierItems++;
       }
 
       if (
@@ -328,6 +332,7 @@ function findReferenceListByContent(document: Document): HTMLElement | null {
       if (ancestor && !completed.excluded) {
         ancestor.identifierItems += completed.identifierItems;
         ancestor.textSize += completed.textSize;
+        ancestor.hasIdentifier ||= completed.hasIdentifier;
         ancestor.hasDescendantEntry ||=
           completed.matchesEntry || completed.hasDescendantEntry;
       }
@@ -341,6 +346,18 @@ function findReferenceListByContent(document: Document): HTMLElement | null {
   }
 
   return best?.element || null;
+}
+
+function hasOwnReferenceIdentifier(element: Element): boolean {
+  if (element.matches('a[href*="doi.org"], a[href*="pubmed.ncbi.nlm.nih.gov"]')) {
+    return true;
+  }
+  for (const child of element.childNodes) {
+    if (child.nodeType !== Node.TEXT_NODE) continue;
+    const text = child.nodeValue || '';
+    if (DOI_REGEX.test(text) || PMID_REGEX.test(text)) return true;
+  }
+  return false;
 }
 
 /**
@@ -358,7 +375,7 @@ function extractTitleFromReference(element: HTMLElement): string | undefined {
     '.reference-title',
     '.article-title',
     '[data-title]',
-    '[itemprop="name"]',
+    '[itemprop="headline"]',
     '.title',
   ];
 
@@ -444,8 +461,10 @@ function findReferenceElements(
     hasMatchingDescendant: boolean;
   }> = [];
   let current = referenceSection.firstElementChild as HTMLElement | null;
+  let visited = 0;
 
-  while (current) {
+  while (current && visited < MAX_REFERENCE_SCAN_ELEMENTS) {
+    visited += 1;
     const parent = stack[stack.length - 1];
     stack.push({
       element: current,
@@ -485,6 +504,82 @@ function findReferenceElements(
   }
 
   return elements;
+}
+
+function findPlainDivReferenceElements(
+  referenceSection: HTMLElement,
+  afterHeading?: Element,
+  beforeBoundary?: Element
+): HTMLElement[] {
+  const nodes: Element[] = [referenceSection];
+  const walker = referenceSection.ownerDocument.createTreeWalker(
+    referenceSection,
+    NodeFilter.SHOW_ELEMENT
+  );
+  while (nodes.length < MAX_REFERENCE_SCAN_ELEMENTS) {
+    const element = walker.nextNode();
+    if (!element) break;
+    if (element instanceof Element) nodes.push(element);
+  }
+
+  const order = new WeakMap<Element, number>();
+  nodes.forEach((element, index) => order.set(element, index));
+  const afterIndex = afterHeading ? order.get(afterHeading) : undefined;
+  const beforeIndex = beforeBoundary ? order.get(beforeBoundary) : undefined;
+  const boundaryAncestors = new WeakSet<Element>();
+  for (
+    let ancestor = beforeBoundary?.parentElement;
+    ancestor && ancestor !== referenceSection;
+    ancestor = ancestor.parentElement
+  ) {
+    boundaryAncestors.add(ancestor);
+  }
+  const isWithinBounds = (element: Element): boolean => {
+    const index = order.get(element);
+    return Boolean(
+      index !== undefined &&
+      (afterIndex === undefined || index > afterIndex) &&
+      (beforeIndex === undefined || index < beforeIndex) &&
+      !boundaryAncestors.has(element)
+    );
+  };
+
+  const identifierSubtrees = new WeakSet<Element>();
+  let bestPlainDivs: HTMLElement[] = [];
+  let bestIdentifierCount = 0;
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const element = nodes[index];
+    let hasIdentifier = hasOwnReferenceIdentifier(element);
+    if (!hasIdentifier) {
+      for (const child of element.children) {
+        if (identifierSubtrees.has(child)) {
+          hasIdentifier = true;
+          break;
+        }
+      }
+    }
+    if (hasIdentifier) identifierSubtrees.add(element);
+    if (element !== referenceSection && element.tagName !== 'DIV') continue;
+
+    let directDivCount = 0;
+    let identifierCount = 0;
+    for (const child of element.children) {
+      if (!(child instanceof HTMLElement) || child.tagName !== 'DIV' || !isWithinBounds(child)) {
+        continue;
+      }
+      directDivCount += 1;
+      if (identifierSubtrees.has(child)) identifierCount += 1;
+    }
+    if (directDivCount < 2) continue;
+    if (identifierCount >= 2 && identifierCount > bestIdentifierCount) {
+      bestPlainDivs = Array.from(element.children).filter(
+        (child): child is HTMLElement =>
+          child instanceof HTMLElement && child.tagName === 'DIV' && isWithinBounds(child)
+      );
+      bestIdentifierCount = identifierCount;
+    }
+  }
+  return bestPlainDivs;
 }
 
 export function extractReferenceDois(
@@ -533,6 +628,14 @@ export function extractReferenceDois(
     }
   }
 
+  if (elements.length === 0) {
+    elements = findPlainDivReferenceElements(
+      referenceSection,
+      referenceHeading,
+      referenceEndBoundary
+    ).slice(0, boundedLimit);
+  }
+
   if (elements.length === 0 && (referenceSection.textContent || '').trim()) {
     const fallback = (referenceHeading?.nextElementSibling as HTMLElement | null) || null;
     if (fallback && isWithinReferenceBounds(fallback, referenceHeading, referenceEndBoundary)) {
@@ -574,15 +677,15 @@ export function scanPageForDois(
   referenceLimit = MAX_REFERENCES_PER_PAGE
 ): ExtractedCitation[] {
   const citations: ExtractedCitation[] = [];
+  const referenceSection = findReferenceSection(document);
 
   // Get current article DOI
-  const currentArticle = extractCurrentArticleDoi(document);
+  const currentArticle = extractCurrentArticleDoi(document, referenceSection);
   if (currentArticle?.doi) {
     citations.push(currentArticle);
   }
 
   // Find and scan reference section
-  const referenceSection = findReferenceSection(document);
   if (referenceSection) {
     citations.push(...extractReferenceDois(referenceSection, referenceLimit));
   }

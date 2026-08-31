@@ -55,9 +55,11 @@ function jumpToFirstReference(category: ReferenceIssueCategory): void {
 const checkedCitations: Map<string, CheckedCitation> = new Map();
 let lastScannedUrl = window.location.href;
 let processedReferenceCount = 0;
+let processedCurrentArticleCount = 0;
 let hasMoreReferences = false;
 const processedIdentifierKeys = new Set<string>();
 let referenceSection: HTMLElement | null = null;
+const MAX_CURRENT_ARTICLE_CHECKS_PER_PAGE = 5;
 
 // Debounce timer for scanning
 let scanDebounceTimer: number | null = null;
@@ -237,9 +239,9 @@ export async function scanPage() {
 
   // Extract citations from the page
   const extracted: ExtractedCitation[] = [];
-  const currentArticle = extractCurrentArticleDoi(document);
-  if (currentArticle?.doi) extracted.push(currentArticle);
   referenceSection = findReferenceSection(document);
+  const currentArticle = extractCurrentArticleDoi(document, referenceSection);
+  if (currentArticle?.doi) extracted.push(currentArticle);
   if (referenceSection) {
     extracted.push(...extractReferenceDois(referenceSection, MAX_REFERENCES_PER_PAGE + 1));
   }
@@ -252,9 +254,32 @@ export async function scanPage() {
   const currentArticleCandidates: ExtractedCitation[] = [];
   const replacementReferenceCandidates: ExtractedCitation[] = [];
   const newReferenceCandidates: ExtractedCitation[] = [];
+  const trackedCurrentArticle = Array.from(checkedCitations.values()).find(
+    (citation) => citation.context === 'current-article'
+  );
   for (const citation of extracted) {
-    const previous = seenElements.get(citation.element);
+    const previous =
+      citation.context === 'current-article'
+        ? trackedCurrentArticle
+        : seenElements.get(citation.element);
     if (previous && previous.doi === citation.doi && previous.pmid === citation.pmid) continue;
+    if (
+      citation.context === 'current-article' &&
+      processedCurrentArticleCount >= MAX_CURRENT_ARTICLE_CHECKS_PER_PAGE
+    ) {
+      if (previous) checkedCitations.delete(previous.id);
+      checkedCitations.set(citation.id, {
+        ...citation,
+        checking: false,
+        result: {
+          status: 'skip',
+          isRetracted: false,
+          retractionDetails: null,
+          validation: null,
+        },
+      });
+      continue;
+    }
     if (previous) {
       checkedCitations.delete(previous.id);
       previous.element.classList.remove(
@@ -266,6 +291,7 @@ export async function scanPage() {
       );
     }
     if (citation.context === 'current-article') {
+      processedCurrentArticleCount += 1;
       currentArticleCandidates.push(citation);
     } else if (previous) {
       replacementReferenceCandidates.push(citation);
@@ -402,6 +428,8 @@ function handleCheckResults(results: { id: string; result: FullCheckResult }[]) 
  * Observe page changes for dynamic content (SPA navigation, lazy loading)
  */
 function observePageChanges() {
+  const identifierSelector =
+    '[data-doi], a[href*="doi.org"], a[href*="pubmed.ncbi.nlm.nih.gov"]';
   const observer = new MutationObserver((mutations) => {
     // Check if new DOIs might have been added
     let shouldRescan = window.location.href !== lastScannedUrl;
@@ -420,8 +448,6 @@ function observePageChanges() {
             // Check if added element or its children contain DOI patterns.
             // Test textContent against a real DOI prefix pattern; a bare
             // "10." would fire on prices, versions, and timestamps.
-            const identifierSelector =
-              '[data-doi], a[href*="doi.org"], a[href*="pubmed.ncbi.nlm.nih.gov"]';
             if (
               /\b10\.\d{4,9}\//.test(element.textContent || '') ||
               /\bPMID:\s*\d+\b/i.test(element.textContent || '') ||
@@ -435,6 +461,16 @@ function observePageChanges() {
               break;
             }
           }
+        }
+      }
+      if (mutation.type === 'attributes') {
+        const target = mutation.target as Element;
+        if (
+          mutation.attributeName === 'data-doi' ||
+          (mutation.attributeName === 'href' &&
+            (target.matches(identifierSelector) || referenceSection?.contains(target)))
+        ) {
+          shouldRescan = true;
         }
       }
       if (
@@ -460,7 +496,9 @@ function observePageChanges() {
     }
   });
 
-  observer.observe(document.body, {
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['href', 'data-doi'],
     childList: true,
     subtree: true,
   });
@@ -491,6 +529,7 @@ function handleMessage(
       removeAllBadges();
       checkedCitations.clear();
       processedReferenceCount = 0;
+      processedCurrentArticleCount = 0;
       hasMoreReferences = false;
       processedIdentifierKeys.clear();
       // Respond once the scan (including API checks) has finished, so the

@@ -26,6 +26,7 @@ interface PageStatus {
 
 let currentTabId: number | null = null;
 let currentWindowId: number | null = null;
+let statusRequestId = 0;
 
 /**
  * Initialize sidebar
@@ -42,6 +43,7 @@ async function init() {
   // Listen for updates
   chrome.runtime.onMessage.addListener(handleMessage);
   chrome.tabs.onActivated.addListener(handleTabActivated);
+  chrome.tabs.onUpdated.addListener(handleTabUpdated);
 }
 
 /**
@@ -50,18 +52,19 @@ async function init() {
 async function loadPageStatus() {
   if (!currentTabId) return;
   const tabId = currentTabId;
+  const requestId = ++statusRequestId;
 
   try {
     const response = await chrome.tabs.sendMessage(tabId, {
       type: 'GET_PAGE_STATUS',
     });
 
-    if (response && tabId === currentTabId) {
+    if (response && tabId === currentTabId && requestId === statusRequestId) {
       renderPageStatus(response);
     }
   } catch (error) {
     // Content script not loaded or page not relevant
-    if (tabId === currentTabId) {
+    if (tabId === currentTabId && requestId === statusRequestId) {
       showEmptyState('This page does not contain academic content.');
     }
   }
@@ -71,6 +74,19 @@ function handleTabActivated({ tabId, windowId }: chrome.tabs.OnActivatedInfo) {
   if (windowId !== currentWindowId) return;
   currentTabId = tabId;
   void loadPageStatus();
+}
+
+function handleTabUpdated(
+  tabId: number,
+  changeInfo: { status?: string }
+) {
+  if (tabId !== currentTabId) return;
+  if (changeInfo.status === 'loading') {
+    statusRequestId++;
+    showEmptyState('Checking this page...');
+  } else if (changeInfo.status === 'complete') {
+    void loadPageStatus();
+  }
 }
 
 /**
@@ -132,8 +148,9 @@ function renderPageStatus(status: PageStatus) {
   if (references.length > 0 || hasMoreReferences) {
     const pending = references.filter((c) => c.status === 'checking').length;
     const notCheckable = references.filter((c) => c.status === 'not-checkable').length;
-    const failed = references.filter((c) => c.status === 'failed' || c.status === 'skip').length;
-    const checked = references.length - pending - notCheckable - failed;
+    const failed = references.filter((c) => c.status === 'failed').length;
+    const deferred = references.filter((c) => c.status === 'skip').length;
+    const checked = references.length - pending - notCheckable - failed - deferred;
     html += `
       <div class="section">
         <div class="section__title">Reference Coverage</div>
@@ -141,6 +158,7 @@ function renderPageStatus(status: PageStatus) {
           ${checked}/${references.length}${hasMoreReferences ? ' scanned references checked' : ' checked'}
           ${notCheckable ? ` · ${notCheckable} without DOI/PMID` : ''}
           ${failed ? ` · ${failed} failed` : ''}
+          ${deferred ? ` · ${deferred} deferred` : ''}
           ${pending ? ` · ${pending} pending` : ''}
           ${hasMoreReferences ? ' · additional references not scanned (500-reference safety limit)' : ''}
         </div>
@@ -297,8 +315,10 @@ export function renderCitationCard(citation: CitationData): string {
     `;
   } else if (citation.status === 'not-checkable') {
     detailsHtml = '<div class="citation-card__reason">No DOI or PubMed ID was found.</div>';
-  } else if (citation.status === 'failed' || citation.status === 'skip') {
+  } else if (citation.status === 'failed') {
     detailsHtml = '<div class="citation-card__reason">External lookup failed. Rescan to retry.</div>';
+  } else if (citation.status === 'skip') {
+    detailsHtml = '<div class="citation-card__reason">Check deferred after the page time limit. Rescan to retry.</div>';
   }
 
   // Prefer the title as printed on the page, then the authoritative record
@@ -334,6 +354,11 @@ export function renderCitationCard(citation: CitationData): string {
 function showEmptyState(message: string) {
   const content = document.getElementById('content');
   if (!content) return;
+
+  for (const id of ['retracted-count', 'fake-count', 'verified-count']) {
+    const counter = document.getElementById(id);
+    if (counter) counter.textContent = '0';
+  }
 
   content.innerHTML = `
     <div class="empty-state">

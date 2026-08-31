@@ -23,10 +23,26 @@ describe('extractCurrentArticleDoi', () => {
   });
 
   it('reads the DOI from a data-doi attribute', () => {
-    document.body.innerHTML = '<div data-doi="10.1234/Example.DOI"></div>';
+    document.body.innerHTML = '<article data-doi="10.1234/Example.DOI"></article>';
     const current = extractCurrentArticleDoi(document);
     // normalized to lowercase
     expect(current?.doi).toBe('10.1234/example.doi');
+  });
+
+  it('does not mistake a reference data-doi attribute for the current article', () => {
+    document.body.innerHTML = `
+      <section role="doc-bibliography">
+        <div role="listitem" data-doi="10.1234/reference">Reference</div>
+      </section>`;
+    expect(extractCurrentArticleDoi(document)).toBeNull();
+  });
+
+  it('does not mistake a reference DOI element for the current article', () => {
+    document.body.innerHTML = `
+      <section role="doc-bibliography">
+        <div role="listitem"><span class="doi">10.1234/reference</span></div>
+      </section>`;
+    expect(extractCurrentArticleDoi(document)).toBeNull();
   });
 
   it('returns null when no DOI is present', () => {
@@ -198,6 +214,74 @@ describe('findReferenceSection', () => {
 });
 
 describe('extractReferenceDois', () => {
+  it('keeps classless div references separate', () => {
+    document.body.innerHTML = `
+      <main>
+        <div>
+          <div>First reference. doi:10.1234/alpha</div>
+          <div>Second reference. doi:10.1234/beta</div>
+          <div>Third reference. doi:10.1234/gamma</div>
+        </div>
+      </main>`;
+    const citations = extractReferenceDois(findReferenceSection(document)!);
+    expect(citations.map((citation) => citation.doi)).toEqual([
+      '10.1234/alpha',
+      '10.1234/beta',
+      '10.1234/gamma',
+    ]);
+  });
+
+  it('keeps classless references linear in a hostile deep div tree', () => {
+    const section = document.createElement('section');
+    section.setAttribute('role', 'doc-bibliography');
+    let container: HTMLElement = section;
+    for (let index = 0; index < 500; index += 1) {
+      const nested = document.createElement('div');
+      container.append(nested);
+      container = nested;
+    }
+    for (const doi of ['10.1234/deep-one', '10.1234/deep-two', '10.1234/deep-three']) {
+      const reference = document.createElement('div');
+      reference.textContent = `Reference doi:${doi}`;
+      container.append(reference);
+    }
+    document.body.append(section);
+    const textContent = vi.spyOn(Node.prototype, 'textContent', 'get');
+
+    const citations = extractReferenceDois(section);
+
+    expect(citations.map((citation) => citation.doi)).toEqual([
+      '10.1234/deep-one',
+      '10.1234/deep-two',
+      '10.1234/deep-three',
+    ]);
+    expect(textContent.mock.calls.length).toBeLessThan(50);
+  });
+
+  it('does not use generic author name microdata as a citation title', () => {
+    document.body.innerHTML = `
+      <ol class="references">
+        <li>
+          <span itemprop="author" itemscope itemtype="https://schema.org/Person">
+            <span itemprop="name">Jean-Baptiste van der Berg</span>
+          </span>
+          <span itemprop="name">Actual Real Article Title</span>
+          doi:10.1234/microdata
+        </li>
+      </ol>`;
+    const [citation] = extractReferenceDois(findReferenceSection(document)!);
+    expect(citation.title).toBeUndefined();
+  });
+
+  it('uses explicit schema.org headline microdata as a citation title', () => {
+    document.body.innerHTML = `
+      <ol class="references">
+        <li><span itemprop="headline">Actual Real Article Title</span> doi:10.1234/title</li>
+      </ol>`;
+    const [citation] = extractReferenceDois(findReferenceSection(document)!);
+    expect(citation.title).toBe('Actual Real Article Title');
+  });
+
   it('extracts DOIs from doi.org links', () => {
     document.body.innerHTML =
       '<ol class="references"><li>Doe J. A study. <a href="https://doi.org/10.1234/ABC">link</a></li></ol>';

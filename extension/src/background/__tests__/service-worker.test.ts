@@ -164,4 +164,44 @@ describe('service worker batch lookup', () => {
       'verified',
     ]);
   });
+
+  it('defers deadline-omitted work without caching it and retries later', async () => {
+    const storageSet = vi.fn(async () => undefined);
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: storageSet,
+          remove: vi.fn(async () => undefined),
+        },
+      },
+      runtime: {
+        onInstalled: { addListener: vi.fn() },
+        onStartup: { addListener: vi.fn() },
+        onMessage: { addListener: vi.fn() },
+      },
+      sidePanel: { setPanelBehavior: vi.fn(async () => undefined) },
+    });
+
+    const { citiciousAPI } = await import('../../shared/api-client');
+    const checkBatch = vi.spyOn(citiciousAPI, 'checkBatch')
+      .mockResolvedValueOnce(new Map())
+      .mockResolvedValueOnce(new Map([['deadline', baseResult]]));
+    const { handleBatchCheck } = await import('../service-worker');
+    const citation: ExtractedCitation = {
+      id: 'deadline',
+      doi: '10.1000/deadline',
+      element: {} as HTMLElement,
+      context: 'reference',
+    };
+
+    const first = await handleBatchCheck([citation]);
+    expect(first.results[0].result.status).toBe('skip');
+    expect(storageSet).not.toHaveBeenCalled();
+
+    const second = await handleBatchCheck([citation]);
+    expect(second.results[0].result.status).toBe('verified');
+    expect(checkBatch).toHaveBeenCalledTimes(2);
+    expect(storageSet).toHaveBeenCalledTimes(1);
+  });
 });
