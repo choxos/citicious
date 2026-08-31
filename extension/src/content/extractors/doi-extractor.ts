@@ -187,6 +187,14 @@ export function extractCurrentArticleDoi(
     const elements = document.querySelectorAll(selector);
     for (const el of elements) {
       if (referenceSection?.contains(el)) continue;
+      const link = (el.matches('a[href]') ? el : el.querySelector('a[href]')) as
+        | HTMLAnchorElement
+        | null;
+      const linkCandidate = link?.href ? doiFromUrl(link.href) : null;
+      if (linkCandidate) {
+        const citation = currentArticleCitation(linkCandidate, document);
+        if (citation) return citation;
+      }
       const text = el.textContent || '';
       const match = text.match(/10\.\d{4,9}\/[^\s"'<>]+/);
       if (match) {

@@ -54,6 +54,12 @@ describe('extractCurrentArticleDoi', () => {
     document.body.innerHTML = '<div data-doi="not-a-doi-at-all"></div>';
     expect(extractCurrentArticleDoi(document)).toBeNull();
   });
+
+  it('uses a DOI link target instead of concatenated Material Icons text', () => {
+    document.body.innerHTML =
+      '<a class="doi-link" href="https://doi.org/10.1002%2Fjrsm.1718"><span class="text">https://doi.org/10.1002/jrsm.1718</span><span class="icon material-icons">open_in_new</span></a>';
+    expect(extractCurrentArticleDoi(document)?.doi).toBe('10.1002/jrsm.1718');
+  });
 });
 
 describe('isValidDoi', () => {
