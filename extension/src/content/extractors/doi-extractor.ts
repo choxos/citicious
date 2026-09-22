@@ -30,6 +30,7 @@ const REFERENCE_SECTION_SELECTORS = [
   '.reference-list',
   '.ref-list',
   '.article-references',
+  '.article-section__references', // Wiley
   '.c-article-references', // Nature
 ];
 const REFERENCE_SECTION_SELECTOR = REFERENCE_SECTION_SELECTORS.join(', ');
@@ -41,9 +42,16 @@ const hasReferenceContent = (element: Element): boolean =>
   element.querySelector('li, p, div, tr') !== null ||
   (element.textContent || '').trim().length > 40;
 
+// A heading inside a link, button, tab, or nav is a control label, not a
+// section heading: Wiley's sidebar renders <a role="tab"><h2>References</h2></a>,
+// and treating it as the heading made the whole article the reference section.
+// Ancestor-based on purpose; Wiley's real heading wraps a role="button" toggle.
+const CONTROL_ANCESTOR_SELECTOR = 'a[href], button, [role="tab"], [role="tablist"], nav';
+
 const isReferenceHeading = (element: Element): boolean =>
   /^H[1-4]$/.test(element.tagName) &&
-  REFERENCE_HEADING_REGEX.test(element.textContent?.trim().toLowerCase() || '');
+  REFERENCE_HEADING_REGEX.test(element.textContent?.trim().toLowerCase() || '') &&
+  element.closest(CONTROL_ANCESTOR_SELECTOR) === null;
 
 /**
  * Generate unique ID for a citation
@@ -228,6 +236,14 @@ export function findReferenceSection(document: Document): HTMLElement | null {
     }
   }
 
+  // Accordions and collapsible panels: a control labeled "References" names
+  // the element it opens (aria-controls / data-target). That element is the
+  // bibliography even when nothing about its own markup says so, which is how
+  // Bentham and other Bootstrap-style layouts hide a reference list behind a
+  // toggle. An empty tab pane fails the content check and is skipped.
+  const disclosed = findReferenceDisclosure(document);
+  if (disclosed) return disclosed;
+
   // Look for a section heading like "References"/"Bibliography" and return its
   // container. Kept to standalone headings to avoid matching sidebar widgets
   // like "References & Citations".
@@ -243,6 +259,24 @@ export function findReferenceSection(document: Document): HTMLElement | null {
   }
 
   return findReferenceListByContent(document);
+}
+
+/**
+ * Resolve a "References" disclosure control to the element it opens.
+ */
+function findReferenceDisclosure(document: Document): HTMLElement | null {
+  const controls = document.querySelectorAll('[aria-controls], [data-target]');
+  for (const control of controls) {
+    const label = (control.textContent || '').trim().toLowerCase();
+    if (!REFERENCE_HEADING_REGEX.test(label)) continue;
+    const target =
+      (control.getAttribute('aria-controls') || '').trim().split(/\s+/)[0] ||
+      (control.getAttribute('data-target') || '').trim().replace(/^#/, '');
+    if (!target) continue;
+    const element = document.getElementById(target);
+    if (element && hasReferenceContent(element)) return element as HTMLElement;
+  }
+  return null;
 }
 
 export function containsReferenceSectionMarker(element: Element): boolean {
@@ -357,7 +391,15 @@ function findReferenceListByContent(document: Document): HTMLElement | null {
 }
 
 function hasOwnReferenceIdentifier(element: Element): boolean {
-  if (element.matches('a[href*="doi.org"], a[href*="pubmed.ncbi.nlm.nih.gov"]')) {
+  if (element.matches('a[href*="doi.org"]')) return true;
+  // Only a link to a specific PubMed record counts. PubMed Central prints an
+  // author-search link (pubmed.../?term="Name"[Author]) beside every author, and
+  // treating those as identifiers made the article's own byline block look like
+  // a reference list on papers that have no bibliography at all.
+  if (
+    element.matches('a[href*="pubmed.ncbi.nlm.nih.gov"]') &&
+    PMID_URL_REGEX.test(element.getAttribute('href') || '')
+  ) {
     return true;
   }
   for (const child of element.childNodes) {
@@ -590,6 +632,33 @@ function findPlainDivReferenceElements(
   return bestPlainDivs;
 }
 
+/**
+ * Split a single selected block into its reference rows when it is really a
+ * list: several sibling children of the same tag and class, each long enough to
+ * be a reference. Bentham wraps every entry in <div class="line"> inside one
+ * <div class="reference">, so selecting the wrapper badged ten references once.
+ * Short children (author spans, labels) never qualify, so a single reference is
+ * left alone.
+ */
+const MIN_SPLIT_CHILD_TEXT = 40;
+const MIN_ENTRY_TEXT = 25;
+const IDENTIFIER_LINK_SELECTOR = 'a[href*="doi.org"], a[href*="pubmed.ncbi.nlm.nih.gov"]';
+
+function splitUniformChildren(element: HTMLElement, limit: number): HTMLElement[] {
+  if (element.matches('li, dd, tr, [role="doc-biblioentry"], [role="listitem"]')) return [];
+  const children = Array.from(element.children).filter(
+    (child): child is HTMLElement =>
+      child instanceof HTMLElement &&
+      (child.textContent || '').trim().length >= MIN_SPLIT_CHILD_TEXT
+  );
+  if (children.length < 2) return [];
+  const { tagName, className } = children[0];
+  if (!children.every((child) => child.tagName === tagName && child.className === className)) {
+    return [];
+  }
+  return children.slice(0, limit);
+}
+
 export function extractReferenceDois(
   referenceSection: HTMLElement,
   limit = MAX_REFERENCES_PER_PAGE
@@ -614,9 +683,7 @@ export function extractReferenceDois(
 
   const referenceHeading = Array.from(
     referenceSection.querySelectorAll('h1, h2, h3, h4')
-  ).find((heading) =>
-    REFERENCE_HEADING_REGEX.test(heading.textContent?.trim().toLowerCase() || '')
-  );
+  ).find(isReferenceHeading);
   const referenceEndBoundary = referenceHeading
     ? findReferenceEndBoundary(referenceSection, referenceHeading)
     : undefined;
@@ -645,12 +712,44 @@ export function extractReferenceDois(
   }
 
   if (elements.length === 0 && (referenceSection.textContent || '').trim()) {
-    const fallback = (referenceHeading?.nextElementSibling as HTMLElement | null) || null;
-    if (fallback && isWithinReferenceBounds(fallback, referenceHeading, referenceEndBoundary)) {
-      elements = [fallback];
+    // Every sibling after the heading, not only the first: Cambridge Core lists
+    // each reference as its own <div> after the <h2>, and taking one sibling
+    // badged the first reference and silently dropped the rest.
+    const siblings: HTMLElement[] = [];
+    for (
+      let sibling = (referenceHeading?.nextElementSibling as HTMLElement | null) || null;
+      sibling && siblings.length < boundedLimit;
+      sibling = sibling.nextElementSibling as HTMLElement | null
+    ) {
+      if (!isWithinReferenceBounds(sibling, referenceHeading, referenceEndBoundary)) break;
+      if ((sibling.textContent || '').trim()) siblings.push(sibling);
+    }
+    if (siblings.length > 0) {
+      elements = siblings;
     } else if (!referenceHeading) {
       elements = [referenceSection];
     }
+  }
+
+  // A reference is a sentence, not a word. Tab strips and link rows sit inside
+  // the same container on abstract-only pages ("Article", "Metrics", "Author
+  // information"), and badging those is worse than missing a short entry, which
+  // could only ever have been reported as "not checked" anyway. An entry that
+  // carries an identifier is kept however short it reads.
+  const meaningful = elements.filter((element) => {
+    const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
+    if (text.length >= MIN_ENTRY_TEXT) return true;
+    if (element.querySelector(IDENTIFIER_LINK_SELECTOR)) return true;
+    return DOI_REGEX.test(text) || PMID_REGEX.test(text);
+  });
+  // When nothing survives, the container was not a bibliography at all: report
+  // no references rather than badging a row of download links.
+  elements = meaningful;
+
+  // One element for a whole bibliography is usually a wrapper, not a reference.
+  if (elements.length === 1) {
+    const split = splitUniformChildren(elements[0], boundedLimit);
+    if (split.length >= 2) elements = split;
   }
 
   return elements.map((element) => {

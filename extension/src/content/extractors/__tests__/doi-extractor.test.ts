@@ -88,6 +88,92 @@ describe('findReferenceSection', () => {
     expect(section?.tagName).toBe('SECTION');
   });
 
+  it('follows a "References" toggle to the panel it opens and splits its rows', () => {
+    document.body.innerHTML = `
+      <div class="card">
+        <button id="refrences" data-target="#collapseExample" aria-controls="collapseExample">
+          <strong>References</strong>
+        </button>
+        <div class="collapse" id="collapseExample">
+          <div id="reference-box">
+            <div class="reference">
+              <div class="line">[1] Doe J. A first work of sufficient length to be a reference. 2019.</div>
+              <div class="line">[2] Roe J. A second work, also long enough to count as one. <a href="https://doi.org/10.1234/second">doi</a></div>
+              <div class="line">[3] Poe J. A third work, still long enough to count as one. 2021.</div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    const section = findReferenceSection(document);
+    expect(section?.id).toBe('collapseExample');
+    const citations = extractReferenceDois(section!);
+    expect(citations).toHaveLength(3);
+    expect(citations[1].doi).toBe('10.1234/second');
+  });
+
+  it('does not read an author byline with PubMed search links as a reference list', () => {
+    document.body.innerHTML = `
+      <section class="front-matter">
+        <div class="ameta p">
+          <div class="cg p">
+            <a href="https://pubmed.ncbi.nlm.nih.gov/?term=%22Doe%20J%22[Author]">Doe J</a>
+            <a href="https://pubmed.ncbi.nlm.nih.gov/?term=%22Roe%20J%22[Author]">Roe J</a>
+            <a href="https://pubmed.ncbi.nlm.nih.gov/?term=%22Poe%20J%22[Author]">Poe J</a>
+          </div>
+          <ul class="d-buttons inline-list">
+            <li><button>Author information</button></li>
+            <li><button>Article notes</button></li>
+            <li><button>Copyright and License information</button></li>
+          </ul>
+        </div>
+      </section>`;
+    expect(findReferenceSection(document)).toBeNull();
+  });
+
+  it('keeps every sibling reference block after the heading (Cambridge layout)', () => {
+    document.body.innerHTML = `
+      <div id="references-list" class="circle-list">
+        <h2>References</h2>
+        <div id="ref1" class="circle-list__item">
+          <div class="circle-list__item__grouped__content">WHO &amp; FAO (2019) Sustainable healthy diets.</div>
+        </div>
+        <div id="ref2" class="circle-list__item">
+          <div class="circle-list__item__grouped__content">Doe J (2021) A second work. <a href="https://doi.org/10.1234/second">link</a></div>
+        </div>
+      </div>`;
+    const citations = extractReferenceDois(findReferenceSection(document)!);
+    expect(citations).toHaveLength(2);
+    expect(citations[1].doi).toBe('10.1234/second');
+  });
+
+  it('ignores a "References" heading that labels a sidebar tab (Wiley layout)', () => {
+    document.body.innerHTML = `
+      <article>
+        <ul class="tab__nav">
+          <li><a role="tab" href="#pane-figures"><h2>Figures</h2></a></li>
+          <li><a role="tab" href="#pane-references"><h2>References</h2></a></li>
+        </ul>
+        <ul><li>MCM</li><li>mixture cure model</li></ul>
+        <section class="article-section article-section__references">
+          <h2><div role="button">References</div></h2>
+          <div>
+            <ul>
+              <li data-bib-id="bib-1">Doe J. First reference. <a href="https://doi.org/10.1234/first">link</a></li>
+              <li data-bib-id="bib-2">Roe J. Identifierless reference.</li>
+            </ul>
+          </div>
+        </section>
+      </article>`;
+    const section = findReferenceSection(document);
+    expect(section?.className).toBe('article-section article-section__references');
+    const citations = extractReferenceDois(section!);
+    expect(citations.map((citation) => citation.referenceText)).toEqual([
+      'Doe J. First reference. link',
+      'Roe J. Identifierless reference.',
+    ]);
+    expect(citations[0].doi).toBe('10.1234/first');
+  });
+
   it('ignores article content before a standalone References heading', () => {
     document.body.innerHTML = `
       <article>
@@ -465,7 +551,8 @@ describe('extractReferenceDois', () => {
   it('stops extracting before cloning entries beyond the requested allowance', () => {
     document.body.innerHTML = `<section role="doc-bibliography">${Array.from(
       { length: 503 },
-      (_, index) => `<div role="listitem">Reference ${index + 1}</div>`
+      (_, index) =>
+        `<div role="listitem">Doe J. Synthetic reference number ${index + 1}. J Test. 2020.</div>`
     ).join('')}</section>`;
     const cloneNode = vi.spyOn(Element.prototype, 'cloneNode');
     const citations = extractReferenceDois(findReferenceSection(document)!, 101);

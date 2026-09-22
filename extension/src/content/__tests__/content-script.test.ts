@@ -396,7 +396,7 @@ describe('dynamic references', () => {
     document.head.innerHTML = '<meta name="citation_title" content="Test article">';
     document.body.innerHTML = `<section role="doc-bibliography">${Array.from(
       { length: 500 },
-      (_, index) => `<div role="listitem" id="reference-${index}">Reference ${index}</div>`
+      (_, index) => `<div role="listitem" id="reference-${index}">Doe J. Synthetic reference ${index}. J Test. 2020.</div>`
     ).join('')}</section>`;
     Object.defineProperty(document, 'readyState', { configurable: true, value: 'complete' });
 
