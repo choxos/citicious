@@ -46,3 +46,10 @@ extension/dist/
 # Large data files (download from GitLab)
 retraction_watch.csv
 .gstack/
+
+# Motion graphic: the rendered video and Manim's working files are rebuilt by
+# media/build.sh, so only the scene source and the build script are tracked.
+media/*.mp4
+media/.render/
+media/.frames/
+__pycache__/
