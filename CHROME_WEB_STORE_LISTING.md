@@ -128,4 +128,4 @@ The `storage` permission is actively used for a 24-hour local result cache; see 
 - [ ] Single purpose, four permission justifications, and the privacy policy URL filled in
 - [ ] Remote code: No
 - [ ] Data usage: Website content only, three certifications checked
-- [ ] Package uploaded: `extension/citicious-extension-v0.2.0.zip` (build it with `npm run package` in `extension/`)
+- [ ] Package uploaded: `extension/citicious-extension-v0.2.1.zip` (build it with `npm run package` in `extension/`)

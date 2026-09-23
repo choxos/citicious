@@ -1,6 +1,6 @@
 {
   "name": "citicious-extension",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Chrome extension to detect retracted and fake scientific citations",
   "scripts": {
     "dev": "webpack --mode development --watch",

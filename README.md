@@ -46,8 +46,8 @@ To keep hostile or malformed pages from triggering unbounded work, Citicious sca
 The `.tar.gz` archive is for local installation and must be extracted first:
 
 ```bash
-mkdir citicious-extension-v0.2.0
-tar -xzf citicious-extension-v0.2.0.tar.gz -C citicious-extension-v0.2.0
+mkdir citicious-extension-v0.2.1
+tar -xzf citicious-extension-v0.2.1.tar.gz -C citicious-extension-v0.2.1
 ```
 
 Then open `chrome://extensions/`, enable **Developer mode**, click **Load unpacked**, and select the extracted directory. The `.zip` archive is the package to upload to the Chrome Web Store.
@@ -81,7 +81,7 @@ npm ci
 npm run package
 ```
 
-This creates `citicious-extension-v0.2.0.zip` for Chrome Web Store submission and `citicious-extension-v0.2.0.tar.gz` for local installation.
+This creates `citicious-extension-v0.2.1.zip` for Chrome Web Store submission and `citicious-extension-v0.2.1.tar.gz` for local installation.
 
 ## Citation Status Types
 

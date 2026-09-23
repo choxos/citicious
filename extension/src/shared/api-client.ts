@@ -9,7 +9,7 @@ const DOI_RESOLVER_URL = 'https://doi.org/api/handles';
 
 // Email for polite pool access (better rate limits)
 const CONTACT_EMAIL = 'choxos@users.noreply.github.com';
-const USER_AGENT = `Citicious/0.2.0 (mailto:${CONTACT_EMAIL})`;
+const USER_AGENT = `Citicious/0.2.1 (mailto:${CONTACT_EMAIL})`;
 const REQUEST_TIMEOUT_MS = 10_000;
 export const BATCH_DEADLINE_MS = 60_000;
 

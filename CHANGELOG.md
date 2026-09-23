@@ -2,6 +2,16 @@
 
 All notable changes to Citicious are documented in this file.
 
+## 0.2.1 - 2026-09-23
+
+### Fixed
+
+- Wiley pages no longer treat the sidebar "References" tab as the bibliography heading, which badged the whole article.
+- Cambridge Core pages badge every reference instead of only the first.
+- PubMed Central pages without a bibliography no longer badge the author byline, "Author information" and "Article notes".
+- References hidden behind a "References" toggle are found, and a single wrapper is split into its entries (Bentham).
+- Tab strips and download links on abstract-only pages are never badged as references (Copernicus).
+
 ## 0.2.0 - 2026-08-30
 
 ### Added
